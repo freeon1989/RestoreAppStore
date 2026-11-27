@@ -1,4 +1,8 @@
 <p align="center">
+  <a href="README.md">Русский</a> · <a href="README.en.md">English</a>
+</p>
+
+<p align="center">
   <img src="assets/icon.png" width="96" alt="RestoreAppStore">
 </p>
 
@@ -10,13 +14,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.exe"><img src="https://img.shields.io/badge/Скачать-Windows%2010%2F11%20x64-C4452D?style=for-the-badge&logo=windows&logoColor=white" alt="Скачать для Windows"></a>
+  <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.exe"><img src="https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C-Windows%2010%2F11%20x64-C4452D?style=for-the-badge&logo=windows&logoColor=white" alt="Скачать для Windows"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/github/v/release/freeon1989/RestoreAppStore?label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7" alt="Последний релиз"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/исходники-MIT-green.svg" alt="Исходники MIT"></a> <a href="licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/сборка-GPL--3.0-blue.svg" alt="Сборка GPL-3.0"></a>
-  <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/badge/платформа-Windows%2010%2F11%20x64-0078D6?logo=windows&logoColor=white" alt="Windows 10/11 x64"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/%D0%B8%D1%81%D1%85%D0%BE%D0%B4%D0%BD%D0%B8%D0%BA%D0%B8-MIT-green.svg" alt="Исходники MIT"></a> <a href="licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0-GPL--3.0-blue.svg" alt="Сборка GPL-3.0"></a>
+  <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/badge/%D0%BF%D0%BB%D0%B0%D1%82%D1%84%D0%BE%D1%80%D0%BC%D0%B0-Windows%2010%2F11%20x64-0078D6?logo=windows&logoColor=white" alt="Windows 10/11 x64"></a>
 </p>
 
 RestoreAppStore — самостоятельная программа для 64-битной Windows 10 или 11. Установка не требуется: достаточно скачать exe и запустить.
