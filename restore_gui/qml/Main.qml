@@ -24,13 +24,17 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        width: parent.width * 0.46
-        fillMode: Image.PreserveAspectCrop
-        horizontalAlignment: Image.AlignHCenter
-        verticalAlignment: Image.AlignBottom
+        anchors.topMargin: 20
+        anchors.bottomMargin: 20
+        anchors.rightMargin: 12
+        // ширина по высоте кадра 3:4, фигура целиком, без обрезки
+        width: Math.min(parent.width * 0.42, (height) * 0.75)
+        fillMode: Image.PreserveAspectFit
+        horizontalAlignment: Image.AlignRight
+        verticalAlignment: Image.AlignVCenter
         source: backend.heroineUrl
         asynchronous: true
-        opacity: backend.pal.dark ? 0.82 : 1
+        opacity: 1
     }
     Rectangle {
         anchors.fill: parent

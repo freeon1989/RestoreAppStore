@@ -83,15 +83,26 @@ ACCENTS = {
 DEFAULT_ACCENT = "emerald"
 
 # Героини фона: ключи пишутся в settings.json. "off" — без рисунка.
+# Для каждой есть светлый (сказка) и тёмный (dark fantasy) рисунок: {key}-light.jpg / {key}-dark.jpg.
 HEROINES = {
-    "off": {"title": "Нет", "file": ""},
-    "mira": {"title": "Мира", "file": "mira.jpg", "accent": "#1F6B4A"},
-    "nora": {"title": "Нора", "file": "nora.jpg", "accent": "#3B6F9A"},
-    "liora": {"title": "Лиора", "file": "liora.jpg", "accent": "#B56A1A"},
-    "vera": {"title": "Вера", "file": "vera.jpg", "accent": "#6B4C8A"},
-    "kira": {"title": "Кира", "file": "kira.jpg", "accent": "#8A2E3A"},
+    "off": {"title": "Нет"},
+    "mira": {"title": "Мира", "accent": "#1F6B4A"},
+    "nora": {"title": "Нора", "accent": "#3B6F9A"},
+    "liora": {"title": "Лиора", "accent": "#B56A1A"},
+    "vera": {"title": "Вера", "accent": "#6B4C8A"},
+    "kira": {"title": "Кира", "accent": "#8A2E3A"},
 }
 DEFAULT_HEROINE = "mira"
+
+
+def heroine_url(key: str, dark: bool = False) -> str:
+    """file:// на рисунок выбранной героини в текущей теме, либо пустая строка."""
+    if not key or key == "off" or key not in HEROINES:
+        return ""
+    name = f"{key}-{'dark' if dark else 'light'}.jpg"
+    from restore_gui.service import paths
+    found = paths.resource("heroines", name)
+    return paths.file_url(found) if found else ""
 
 
 

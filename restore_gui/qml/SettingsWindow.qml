@@ -124,7 +124,7 @@ Popup {
                         }
                         Label2 { text: "Героиня на фоне"; Layout.topMargin: 10 }
                         Text {
-                            text: "Справа на фоне, в спокойном стиле. Можно выключить."
+                            text: "Справа в полный рост. В светлой теме — светлая сказка, в тёмной — dark fantasy. Можно выключить."
                             color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
                             wrapMode: Text.WordWrap; Layout.fillWidth: true
                         }
@@ -152,7 +152,7 @@ Popup {
                                             Image {
                                                 visible: hcard.modelData.url !== ""
                                                 anchors.fill: parent
-                                                fillMode: Image.PreserveAspectCrop
+                                                fillMode: Image.PreserveAspectFit
                                                 source: hcard.modelData.url
                                                 asynchronous: true
                                             }
@@ -287,10 +287,15 @@ Popup {
                                 Btn { text: "Проверить"; lock: false; implicitHeight: 34; onClicked: backend.checkUpdates() } }
                             Row2 { visible: backend.updateUrl !== ""
                                    title: "Доступна новая версия"
-                                   sub: "Откроется страница релиза. Сверьте SHA-256 перед заменой файла."
-                                   last: true
-                                Btn { text: "Открыть релиз"; kind: "primary"; lock: false; implicitHeight: 34
+                                   sub: "Скачивается zip или exe с GitHub, сумма SHA-256 сверяется до замены."
+                                Btn { text: "Открыть релиз"; kind: "ghost"; lock: false; implicitHeight: 34
                                       onClicked: backend.openUrl(backend.updateUrl) } }
+                            Row2 { visible: backend.backupAvailable
+                                   title: "Вернуть предыдущую версию"
+                                   sub: backend.backupText
+                                   last: true
+                                Btn { text: "Вернуть"; kind: "ghost"; lock: false; implicitHeight: 34
+                                      onClicked: backend.rollbackUpdate() } }
                         }
 
                     }

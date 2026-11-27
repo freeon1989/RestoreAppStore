@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/github/v/release/freeon1989/RestoreAppStore?label=релиз" alt="Последний релиз"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/лицензия-GPL--3.0-blue.svg" alt="Лицензия GPL-3.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/исходники-MIT-green.svg" alt="Исходники MIT"></a> <a href="licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/сборка-GPL--3.0-blue.svg" alt="Сборка GPL-3.0"></a>
   <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/badge/платформа-Windows%2010%2F11%20x64-0078D6?logo=windows&logoColor=white" alt="Windows 10/11 x64"></a>
 </p>
 
@@ -36,7 +36,7 @@ RestoreAppStore — самостоятельная программа для 64-
 · [SHA-256 exe](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.exe.sha256)
 · [SHA-256 zip](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.zip.sha256)
 
-Актуальная версия: **1.3.1**. Нужна **64-битная Windows 10 или 11**.
+Актуальная версия: **2.0.0**. Нужна **64-битная Windows 10 или 11**.
 
 Запустите скачанный `RestoreAppStore-win-x64.exe` либо распакуйте `RestoreAppStore-win-x64.zip` и откройте `RestoreAppStore\RestoreAppStore.exe`. Сборка не подписана цифровым сертификатом, поэтому Windows SmartScreen может показать предупреждение «Windows защитила ваш компьютер». Нажмите «Подробнее» → «Выполнить в любом случае».
 
@@ -44,10 +44,10 @@ RestoreAppStore — самостоятельная программа для 64-
 
 Если уже стоит предыдущая версия, в программе откройте «Настройки → О программе → Проверить обновления».
 
-SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 1.3.1):
+SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 2.0.0):
 
 ```
-0663b24e7ba8b7570067e5a7659ae4e3c89fceb8264c7dc3fd4a521721987f14
+13a26692937751dde8f0a033b0b4722a828c7d0383403b057e7f75c54e082b15
 ```
 
 В PowerShell проверка такая:
@@ -56,18 +56,18 @@ SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 1.3.1):
 Get-FileHash .\RestoreAppStore-win-x64.exe -Algorithm SHA256
 ```
 
-SHA-256 архива `RestoreAppStore-win-x64.zip` (версия 1.3.1):
+SHA-256 архива `RestoreAppStore-win-x64.zip` (версия 2.0.0):
 
 ```
-a9efcde28f0e79aa7b17b6efdd07588b533e56d2da277f647d0dd6079cfa08d3
+baa4f508cbd48c64ebf14a2ded1a4df2f237e7b29948c46010f8f602ea7bde48
 ```
 
 
 ## Скриншоты
 
-Снимки сняты в демонстрационном режиме (учётная запись `demo@example.com`, устройство «iPhone (демо)», на фоне героиня Мира). Это не настоящий Apple ID и не подключённый телефон.
+Снимки сняты в демонстрационном режиме (учётная запись `demo@example.com`, устройство «iPhone (демо)», на фоне героиня Мира в аниме-стиле). Это не настоящий Apple ID и не подключённый телефон. В светлой теме фон — светлая сказка, в тёмной — dark fantasy.
 
-Главный экран (светлая тема, оформление Ink):
+Главный экран (светлая тема):
 
 ![Главный экран RestoreAppStore](docs/screenshots/home.png)
 
@@ -104,14 +104,13 @@ a9efcde28f0e79aa7b17b6efdd07588b533e56d2da277f647d0dd6079cfa08d3
 
 - Боковая панель: «Главная», «Каталог», «Мои удалённые» (что нашлось в истории вашего Apple ID) и «Файлы .ipa».
 - На главной — короткие шаги (вход, телефон, поиск в истории) и популярные приложения.
-- Каталог из 700+ приложений, удалённых из российского App Store, с поиском по названию, App ID или ссылке App Store и делением на категории.
-- Проверка истории вашего Apple ID: программа показывает, какие из этих приложений у вас были.
-- Копии под другими названиями (например, банк, опубликованный как другое приложение). В панели видны все копии, и можно проверить, какие есть у вас.
-- Выбор версии или режим «Автоматически» — новейшая версия, подходящая для iOS вашего iPhone.
+- Поиск по названию, App ID или ссылке App Store и категории из ответа каталога.
+- История покупок вашего Apple ID и сверка с текущим каталогом: какие приложения из истории уже пропали из App Store.
+- Выбор версии, которую отдаёт ipatool-cpp. Старые сборки Apple может больше не подписывать.
 - «Только скачать IPA» или «Скачать и установить» по кабелю, в том числе несколько приложений по очереди. Готовый `.ipa` можно поставить и без повторного входа в Apple ID.
 - Светлая и тёмная тема (или как в системе) и четыре цвета акцента: терракота, чернила, яшма, охра.
-- Героиня на фоне (Мира, Нора, Лиора, Вера, Кира) — в настройках оформления можно сменить или выключить.
-- Проверка обновлений с GitHub: «Настройки → О программе».
+- Героиня на фоне в полный рост, в аниме-стиле (Мира, Нора, Лиора, Вера, Кира): в светлой теме — светлая сказка, в тёмной — dark fantasy. В настройках можно сменить или выключить.
+- Обновление из GitHub Releases с проверкой SHA-256 и откатом на предыдущую копию: «Настройки → О программе».
 - Понятные сообщения об ошибках по-русски и журнал внизу окна.
 
 ## Что нужно
@@ -154,6 +153,6 @@ py -V:3.12 -m unittest discover tests
 
 ## Лицензия
 
-Программа распространяется по [GPL-3.0](LICENSE). Тексты лицензий сторонних компонентов — в [licenses](licenses) и [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Исходный код RestoreAppStore — [MIT](LICENSE), © 2026 freeon1989. Готовая сборка для Windows из‑за сторонних компонентов (Unicorn внутри ipatool-cpp, pymobiledevice3) распространяется под [GPL-3.0](licenses/GPL-3.0.txt). Подробности — в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Проект не связан с Apple. App Store, iPhone и iOS — товарные знаки Apple Inc. Используйте программу только для приложений из истории покупок своего Apple ID.

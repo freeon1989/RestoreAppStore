@@ -23,14 +23,9 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PIL import Image, ImageGrab  # noqa: E402
 
 from restore_gui import app as gui  # noqa: E402
-from restore_gui import storage  # noqa: E402
 
 OUT = ROOT / "docs" / "screenshots"
 OUT.mkdir(parents=True, exist_ok=True)
-
-_SETTINGS_DIR = tempfile.TemporaryDirectory()
-storage.SETTINGS = Path(_SETTINGS_DIR.name) / "settings.json"
-
 
 def pump(app, n=12):
     for _ in range(n):
@@ -139,10 +134,9 @@ def main():
     print("platform", app.platformName())
     b.themeMode = "light"
     b.accentName = "emerald"
-    b.detail_task = lambda d: None
+    b.heroineName = "mira"
     # Демо-состояние: вымышленный аккаунт, без пароля и без сети
-    b.loggedIn, b.account = True, "demo@example.com"
-    b.deviceState, b.deviceText = "ok", "iPhone (демо)"
+    b.seed_demo()
     settle(app)
 
     b.showPage("home")

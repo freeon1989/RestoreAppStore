@@ -1,86 +1,92 @@
-"""Списки для QML: строки — словари, роли — их ключи. Модель хранит готовые строки и обновляет только
-изменившиеся (QML перерисовывает лишь видимые строки, так что и обновление всего списка дёшево)."""
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Signal
+
+"""Списки приложений и файлов для QML (роли совпадают с полями делегатов)."""
+from __future__ import annotations
+
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
+
+APP_ROLES = {
+    Qt.UserRole + 1: "appId",
+    Qt.UserRole + 2: "title",
+    Qt.UserRole + 3: "sub",
+    Qt.UserRole + 4: "letter",
+    Qt.UserRole + 5: "tint",
+    Qt.UserRole + 6: "icon",
+    Qt.UserRole + 7: "status",
+    Qt.UserRole + 8: "statusKind",
+    Qt.UserRole + 9: "selected",
+    Qt.UserRole + 10: "copies",
+}
+
+FILE_ROLES = {
+    Qt.UserRole + 1: "path",
+    Qt.UserRole + 2: "title",
+    Qt.UserRole + 3: "info",
+    Qt.UserRole + 4: "letter",
+    Qt.UserRole + 5: "tint",
+    Qt.UserRole + 6: "icon",
+}
+
+VERSION_ROLES = {
+    Qt.UserRole + 1: "value",
+    Qt.UserRole + 2: "title",
+    Qt.UserRole + 3: "sub",
+    Qt.UserRole + 4: "mine",
+}
 
 
-class RowsModel(QAbstractListModel):
-    """Список строк-словарей с заданным набором ключей. make_row(item) -> словарь строки (по умолчанию item)."""
-
-    countChanged = Signal()
-
-    def __init__(self, keys, make_row=None, key=None):
-        super().__init__()
-        self._roles = {Qt.UserRole + n: k.encode() for n, k in enumerate(keys)}
-        self._by_name = {k: r for r, k in self._roles.items()}
-        self.make_row = make_row or (lambda item: item)
-        self.key = key  # item -> ключ для обновления отдельных строк (refresh_keys)
-        self.items, self.rows, self.index_of = [], [], {}
-
-    def roleNames(self):
-        return self._roles
+class DictList(QAbstractListModel):
+    def __init__(self, roles: dict, parent=None):
+        super().__init__(parent)
+        self._roles = roles
+        self._rows: list[dict] = []
 
     def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else len(self.rows)
+        return 0 if parent.isValid() else len(self._rows)
 
-    def data(self, index, role):
-        if not index.isValid() or index.row() >= len(self.rows):
+    def roleNames(self):
+        return {key: name.encode("utf-8") for key, name in self._roles.items()}
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid() or not (0 <= index.row() < len(self._rows)):
             return None
-        return self.rows[index.row()].get(self._roles.get(role, b"").decode())
+        name = self._roles.get(role)
+        if not name:
+            return None
+        value = self._rows[index.row()].get(name)
+        if name == "selected":
+            return bool(value)
+        if name == "mine":
+            return bool(value)
+        return "" if value is None else value
 
-    def set_items(self, items):
+    def replace(self, rows: list[dict]) -> None:
         self.beginResetModel()
-        self.items = list(items)
-        self.rows = [self.make_row(a) for a in self.items]
-        self.index_of = {self.key(a): n for n, a in enumerate(self.items)} if self.key else {}
+        self._rows = [dict(row) for row in rows]
         self.endResetModel()
-        self.countChanged.emit()
 
-    def update_items(self, items):
-        """Как set_items, но без сброса списка, когда строки только добавились, убрались или изменились:
-        сброс модели прокручивает ListView к началу (так каждая находка поиска сбивала прокрутку «Мои»),
-        а вставка и удаление строк — нет. Если порядок оставшихся строк другой, список пересобирается."""
-        items = list(items)
-        if not self.key:
-            self.set_items(items)
-            return
-        old = [self.key(a) for a in self.items]
-        new = [self.key(a) for a in items]
-        old_set, new_set = set(old), set(new)
-        if len(old_set) != len(old) or len(new_set) != len(new) \
-                or [k for k in old if k in new_set] != [k for k in new if k in old_set]:
-            self.set_items(items)
-            return
-        for n in range(len(old) - 1, -1, -1):  # с конца: номера ещё не удалённых строк не съезжают
-            if old[n] not in new_set:
-                self.beginRemoveRows(QModelIndex(), n, n)
-                del self.items[n], self.rows[n]
-                self.endRemoveRows()
-        for n, (k, item) in enumerate(zip(new, items)):  # остались общие строки в нужном порядке
-            row = self.make_row(item)
-            if n < len(self.items) and self.key(self.items[n]) == k:
-                self.items[n] = item
-                if row != self.rows[n]:
-                    self.rows[n] = row
-                    self.dataChanged.emit(self.index(n), self.index(n))
-            else:
-                self.beginInsertRows(QModelIndex(), n, n)
-                self.items.insert(n, item)
-                self.rows.insert(n, row)
-                self.endInsertRows()
-        self.index_of = {k: n for n, k in enumerate(new)}
-        if len(old) != len(new):
-            self.countChanged.emit()
+    def at(self, row: int) -> dict | None:
+        if 0 <= row < len(self._rows):
+            return self._rows[row]
+        return None
 
-    def refresh_all(self):
-        """Пересчитать строки, не сбрасывая список (прокрутка и выделение сохраняются)."""
-        if not self.rows:
+    def toggle(self, row: int) -> None:
+        item = self.at(row)
+        if item is None:
             return
-        self.rows = [self.make_row(a) for a in self.items]
-        self.dataChanged.emit(self.index(0), self.index(len(self.rows) - 1))
+        item["selected"] = not bool(item.get("selected"))
+        idx = self.index(row)
+        self.dataChanged.emit(idx, idx, [key for key, name in self._roles.items() if name == "selected"])
 
-    def refresh_keys(self, keys):
-        for k in keys:
-            n = self.index_of.get(k)
-            if n is not None:
-                self.rows[n] = self.make_row(self.items[n])
-                self.dataChanged.emit(self.index(n), self.index(n))
+    def clear_selection(self) -> None:
+        roles = [key for key, name in self._roles.items() if name == "selected"]
+        for i, item in enumerate(self._rows):
+            if item.get("selected"):
+                item["selected"] = False
+                idx = self.index(i)
+                self.dataChanged.emit(idx, idx, roles)
+
+    def selected_rows(self) -> list[dict]:
+        return [dict(item) for item in self._rows if item.get("selected")]
+
+    def __len__(self):
+        return len(self._rows)

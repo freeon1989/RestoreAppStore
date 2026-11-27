@@ -16,7 +16,7 @@ ONEDIR = os.environ.get("RESTORE_ONEDIR") == "1"
 MAC = sys.platform == "darwin"  # macOS: всегда Restore.app (папкой), ipatool для Mac, без Unicorn и ресурса версии
 
 RES = "build/res"
-datas = [("removed_ru_appstore_app_ids.csv", "."), ("assets/icon.ico", "."), ("assets/cloudtips_qr.png", "."),
+datas = [("assets/icon.ico", "."), ("assets/cloudtips_qr.png", "."),
          ("restore_gui/qml", "restore_gui/qml"),  # интерфейс (QML) — рядом с модулями пакета, см. app.QML_DIR
          ("restore_gui/fonts", "restore_gui/fonts"),  # шрифт Manrope и его лицензия OFL
          ("assets/heroines", "heroines"),
@@ -25,7 +25,8 @@ if MAC:
     binaries = [(f"{RES}/ipatool", ".")]  # Unicorn ipatool нужен только на Windows
 else:
     binaries = [(f"{RES}/ipatool-cpp.exe", ".")]
-    datas += [(f"{RES}/IPATOOL_CPP_LICENSE.txt", "."), (f"{RES}/IPA_DOWNLOADER_LICENSE.txt", ".")]
+    datas += [(f"{RES}/IPATOOL_CPP_LICENSE.txt", "."), (f"{RES}/IPA_DOWNLOADER_LICENSE.txt", "."),
+             ("LICENSE", "."), ("licenses/GPL-3.0.txt", "."), ("THIRD_PARTY_NOTICES.md", ".")]
 # PySide6 6.10+ (включая 6.12) на Windows жёстко импортирует icuuc.dll,
 # но wheel его не кладёт. На «живой» Windows 10/11 файл есть в System32;
 # в сборке кладём рядом с Qt6Core копию ICU 72.1 (Unicode License, неверсионные символы).
@@ -81,7 +82,11 @@ binaries += _collect_qt_plugins()
 datas += _collect_qml_imports()
 
 # segno — QR-код в «Поддержать», если нет картинки; модули Qt ниже нужны QML и импортируются не из Python
-hiddenimports = ["restore_apps", "segno", "PySide6.QtQuick", "PySide6.QtQuickControls2"]
+hiddenimports = ["restore_apps", "segno", "PySide6.QtQuick", "PySide6.QtQuickControls2",
+                 "restore_gui.service", "restore_gui.service.paths", "restore_gui.service.secrets",
+                 "restore_gui.service.prefs", "restore_gui.service.store", "restore_gui.service.itunes",
+                 "restore_gui.service.device", "restore_gui.service.ipa", "restore_gui.service.icons",
+                 "restore_gui.service.updater"]
 # pymobiledevice3 встроен для режима `exe --pmd` (установка IPA); подмодули он грузит динамически.
 # pytun_pmd3 — его зависимость с wintun.dll внутри пакета: без collect_all dll не попадает в сборку
 # и `--pmd lockdown …` падает при импорте.

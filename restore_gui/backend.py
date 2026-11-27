@@ -1,76 +1,60 @@
-"""Backend — всё, что видит окно (QML): состояние в свойствах, списки в моделях, действия в слотах.
 
-Логика долгих операций — в TasksMixin (tasks.py) и DetailMixin (detail.py); они работают в рабочих потоках
-и трогают окно только через post(fn) — fn выполнится в главном потоке.
-"""
-import contextlib
-import datetime
-import re
-import secrets
-import sys
+"""Связь интерфейса QML с собственными службами RestoreAppStore."""
+from __future__ import annotations
+
+import hashlib
+import os
 import threading
-import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QObject, Qt, QUrl, QTimer, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog
 
 import restore_apps as core
-
-from . import storage, theme
-from .apple import close_procs, scan_copies
-from .catalog import Catalog, parse_app_ref, plural, split_disguise
-from .detail import DetailMixin
-from .icons import IconLoader, cached
-from .models import RowsModel
-from .prefs import NOTIFY_AFTER_S, REPO_URL, UPDATE_DELAY_MS, PrefsMixin
-from .tasks import TasksMixin
-
-# страница CloudTips для «Поддержать разработчика»; пустая строка — кнопка не показывается.
-# assets/cloudtips_qr.png — фирменный QR CloudTips на эту же ссылку; сменили ссылку — замените или удалите
-# картинку (без неё QR рисуется сам).
-SUPPORT_URL = "https://pay.cloudtips.ru/p/d4214684"
-LOG_FLUSH_MS = 100  # журнал копится и уходит в окно одним куском: ipatool при скачивании пишет сотни строк
-
-APP_KEYS = ("appId", "title", "sub", "letter", "tint", "icon", "status", "statusKind", "selected", "copies")
+from restore_gui import theme
+from restore_gui.models import APP_ROLES, FILE_ROLES, VERSION_ROLES, DictList
+from restore_gui.service import device as device_svc
+from restore_gui.service import icons as icon_svc
+from restore_gui.service import ipa as ipa_svc
+from restore_gui.service import itunes
+from restore_gui.service import paths
+from restore_gui.service import prefs
+from restore_gui.service import secrets
+from restore_gui.service import updater
+from restore_gui.service.store import Store, StoreError, parse_app_ref
 
 
 def qprop(type_, name):
-    """Свойство для QML: (сигнал nameChanged, свойство name); значение хранится в self._name."""
     changed = Signal()
+    priv = "_" + name
 
-    def fget(self):
-        return getattr(self, "_" + name)
+    def getter(self):
+        return getattr(self, priv)
 
-    def fset(self, value):
-        if getattr(self, "_" + name) != value:
-            setattr(self, "_" + name, value)
+    def setter(self, value):
+        if getattr(self, priv) != value:
+            setattr(self, priv, value)
             getattr(self, name + "Changed").emit()
 
-    return changed, Property(type_, fget, fset, notify=changed)
+    prop = Property(type_, getter, setter, notify=changed)
+    return changed, prop
 
 
-class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
-    DEFAULTS = {
-        "engine": "cpp", "page": "home", "loggedIn": False, "account": "", "deviceState": "none", "deviceText": "iPhone не подключён",
-        "busy": False, "status": "", "selectedCount": 0, "selectedText": "", "category": "Все", "logOpen": False,
-        "country": "ru", "onlyRemoved": True, "purchase": False, "loginOpen": False, "loginNote": "",
-        "askOpen": False, "askTitle": "", "askPrompt": "",
-        "detailOpen": False, "detailApp": {}, "detailChecks": {}, "cloneHead": "", "cloneHeadOk": False,
-        "versionHead": "Версия", "versionMode": "loading", "detailErr": "", "detailAnswer": "", "moreText": "",
-        "actionsEnabled": False, "selectedVersion": "",
-        # настройки (prefs.py)
-        "themeMode": "system", "accentName": "emerald", "heroineName": "mira", "ipaDir": "", "deleteAfterInstall": False,
-        "notifyDone": True, "ipaSummary": "", "updateText": "", "updateUrl": "",
-        "autoUpdate": True, "skipVersion": "", "updateOpen": False, "updateVersion": "", "updateNotes": "",
-        "paletteSerial": 0,
-    }
-    engineChanged, engine = qprop(str, "engine")
+class Backend(QObject):
+    logAppended = Signal(str)
+    noticeRequested = Signal(str, str)
+    paletteChanged = Signal()
+    taskFinished = Signal()
+
+    themeModeChanged, themeMode = qprop(str, "themeMode")
+    accentNameChanged, accentName = qprop(str, "accentName")
+    heroineNameChanged, heroineName = qprop(str, "heroineName")
     pageChanged, page = qprop(str, "page")
     loggedInChanged, loggedIn = qprop(bool, "loggedIn")
     accountChanged, account = qprop(str, "account")
-    deviceStateChanged, deviceState = qprop(str, "deviceState")  # none / trust / ok
+    deviceStateChanged, deviceState = qprop(str, "deviceState")
     deviceTextChanged, deviceText = qprop(str, "deviceText")
     busyChanged, busy = qprop(bool, "busy")
     statusChanged, status = qprop(str, "status")
@@ -92,596 +76,943 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
     cloneHeadChanged, cloneHead = qprop(str, "cloneHead")
     cloneHeadOkChanged, cloneHeadOk = qprop(bool, "cloneHeadOk")
     versionHeadChanged, versionHead = qprop(str, "versionHead")
-    versionModeChanged, versionMode = qprop(str, "versionMode")  # loading / error / none / list
+    versionModeChanged, versionMode = qprop(str, "versionMode")
     detailErrChanged, detailErr = qprop(str, "detailErr")
     detailAnswerChanged, detailAnswer = qprop(str, "detailAnswer")
     moreTextChanged, moreText = qprop(str, "moreText")
-    actionsEnabledChanged, actionsEnabled = qprop(bool, "actionsEnabled")
     selectedVersionChanged, selectedVersion = qprop(str, "selectedVersion")
-    themeModeChanged, themeMode = qprop(str, "themeMode")  # system / light / dark
-    accentNameChanged, accentName = qprop(str, "accentName")  # ключ theme.ACCENTS
-    heroineNameChanged, heroineName = qprop(str, "heroineName")  # ключ theme.HEROINES, off — без фона
+    actionsEnabledChanged, actionsEnabled = qprop(bool, "actionsEnabled")
     ipaDirChanged, ipaDir = qprop(str, "ipaDir")
     deleteAfterInstallChanged, deleteAfterInstall = qprop(bool, "deleteAfterInstall")
     notifyDoneChanged, notifyDone = qprop(bool, "notifyDone")
     ipaSummaryChanged, ipaSummary = qprop(str, "ipaSummary")
     updateTextChanged, updateText = qprop(str, "updateText")
     updateUrlChanged, updateUrl = qprop(str, "updateUrl")
-    autoUpdateChanged, autoUpdate = qprop(bool, "autoUpdate")  # проверять обновления при запуске
-    skipVersionChanged, skipVersion = qprop(str, "skipVersion")  # «Пропустить эту версию» в окне обновления
+    autoUpdateChanged, autoUpdate = qprop(bool, "autoUpdate")
     updateOpenChanged, updateOpen = qprop(bool, "updateOpen")
     updateVersionChanged, updateVersion = qprop(str, "updateVersion")
     updateNotesChanged, updateNotes = qprop(str, "updateNotes")
-    paletteSerialChanged, paletteSerial = qprop(int, "paletteSerial")
+    backupTextChanged, backupText = qprop(str, "backupText")
+    backupAvailableChanged, backupAvailable = qprop(bool, "backupAvailable")
 
-
-    logAppended = Signal(str)
-    noticeRequested = Signal(str, str)  # заголовок, текст
-    paletteChanged = Signal()  # сменилась тема или акцент: app.py передаёт QML новую палитру P
-
-    @Property(QObject, constant=True)
-    def pal(self):
-        return self._pal
-
-    @Property("QVariantList", constant=True)
-    def heroines(self):
-        """Список героинь для настроек: ключ, название, картинка."""
-        import restore_apps as core
-        from PySide6.QtCore import QUrl
-        items = []
-        for key, meta in theme.HEROINES.items():
-            url = ""
-            if meta.get("file"):
-                for base in (core.BUNDLE, core.HERE, core.HERE / "assets"):
-                    pth = base / "heroines" / meta["file"]
-                    if not pth.is_file() and base.name != "assets":
-                        pth = base / "assets" / "heroines" / meta["file"]
-                    if pth.is_file():
-                        url = QUrl.fromLocalFile(str(pth)).toString()
-                        break
-            items.append({"key": key, "title": meta["title"], "url": url, "accent": meta.get("accent", "")})
-        return items
-
-    @Property(str, notify=heroineNameChanged)
-    def heroineUrl(self):
-        if self._heroineName in ("", "off"):
-            return ""
-        for item in self.heroines:
-            if item["key"] == self._heroineName:
-                return item["url"]
-        return ""
-
-    taskFinished = Signal()  # долгая операция закончилась — окно мигнёт на панели задач, если не в фокусе
-    _posted = Signal(object)
+    version = Property(str, lambda self: core.__version__, constant=True)
+    displayName = Property(str, lambda self: core.DISPLAY_NAME, constant=True)
+    supportUrl = Property(str, lambda self: core.SUPPORT_URL, constant=True)
+    repoUrl = Property(str, lambda self: f"https://github.com/{core.REPO}", constant=True)
 
     def __init__(self, background=True):
-        """background=False — без фоновых потоков (iPhone, иконки, уборка сессии): для тестов окна."""
-        QObject.__init__(self)
-        self._pal = theme.Palette(self)
-        for k, v in self.DEFAULTS.items():
-            setattr(self, "_" + k, v)
-        core.SESSION_PASSPHRASE = secrets.token_urlsafe(32)  # только в памяти, на диск не пишется
-        # пароль к сессии открытым текстом: из ранних версий и от консольной версии (её сессию окно всё равно стирает)
-        for old in (Path.home() / ".restore_appstore" / "keychain.pass", core.KEYCHAIN_PASS):
-            with contextlib.suppress(OSError):
-                old.unlink()
-        for name in ("ipatool-cpp-home", "ipatool-home"):
-            import shutil
-            shutil.rmtree(core.DATA_DIR / name / ".ipatool", ignore_errors=True)
-        storage.forget_email()  # email.txt прежних версий: email Apple ID на диске не храним
-        storage.remove_leftovers()
-        self._busy_since = 0.0
-        self.load_prefs()
-        core.configure_engine(self._engine)
-        self.catalog = Catalog(core.load_catalog())
-        self.purchases = []
-        self.avail = None  # ID покупок, которые сейчас есть в сторе; None — не проверялось
-        self.owned_state = {}  # id -> True/False: есть ли приложение в истории Apple ID
-        self.selected = {}  # id -> app, отмеченные для пакетной установки
-        self.device = None
-        self._device_lock = threading.Lock()
-        self._closing = False
-        self.after_login = None
-        self.detail = None  # состояние открытой панели приложения (см. DetailMixin.open_detail)
-        self.dlock = threading.Lock()  # проверки в панели идут по одной (общая папка сессии ipatool)
-        self.stop_flag = False
-        self.tool_paths = {}
-        self._query = ""
-        self._ask = None  # (событие, ответ) для вопроса из рабочего потока (код 2FA)
-        self._log_lock, self._log_buf = threading.Lock(), []
-        self.icon_urls = {a["id"]: QUrl.fromLocalFile(str(p)).toString()
-                          for a in self.catalog.apps if (p := cached(a["id"]))}
-
-        key = lambda a: a["id"]  # noqa: E731
-        self._popular = RowsModel(APP_KEYS, self.app_row, key)
-        self._apps = RowsModel(APP_KEYS, self.app_row, key)
-        self._mine = RowsModel(APP_KEYS, self.app_row, key)
-        self._clones = RowsModel(APP_KEYS, self.clone_row, key)
-        self._versions = RowsModel(("value", "title", "sub", "mine"), self.version_row)
-        self._ipa = RowsModel(("path", "title", "info", "letter", "tint", "icon"))
-
-        self._posted.connect(self._run_posted)
-        self._log_timer = QTimer(self, interval=LOG_FLUSH_MS, timeout=self._flush_log)
-        self._log_timer.start()
-        self._popular.set_items(self.catalog.popular())
-        self.apply_filter()
-        self.refresh_mine()
-        if not self.catalog.apps:
-            self.log(f"Каталог не найден: {core.CATALOG.name}. Можно вводить App ID вручную в поиске.")
-        self.icons = IconLoader(lambda app_id, path: self.post(lambda: self.on_icon(app_id, path)))
+        super().__init__()
+        self._demo = False
+        self._themeMode = "system"
+        self._accentName = theme.DEFAULT_ACCENT
+        self._heroineName = theme.DEFAULT_HEROINE
+        self._page = "home"
+        self._loggedIn = False
+        self._account = ""
+        self._deviceState = "none"
+        self._deviceText = "Подключите iPhone кабелем"
+        self._busy = False
+        self._status = ""
+        self._selectedCount = 0
+        self._selectedText = ""
+        self._category = "Все"
+        self._logOpen = False
+        self._country = "ru"
+        self._onlyRemoved = True
+        self._purchase = False
+        self._loginOpen = False
+        self._loginNote = ""
+        self._askOpen = False
+        self._askTitle = ""
+        self._askPrompt = ""
+        self._detailOpen = False
+        self._detailApp = {}
+        self._detailChecks = {}
+        self._cloneHead = "Копии"
+        self._cloneHeadOk = False
+        self._versionHead = "Версия"
+        self._versionMode = "none"
+        self._detailErr = ""
+        self._detailAnswer = ""
+        self._moreText = ""
+        self._selectedVersion = ""
+        self._actionsEnabled = False
+        self._ipaDir = str(paths.default_ipa_dir())
+        self._deleteAfterInstall = False
+        self._notifyDone = True
+        self._ipaSummary = "Скачанных файлов нет"
+        self._updateText = ""
+        self._updateUrl = ""
+        self._autoUpdate = True
+        self._updateOpen = False
+        self._updateVersion = ""
+        self._updateNotes = ""
+        self._backupText = ""
+        self._backupAvailable = False
+        self._skipVersion = ""
+        self._pending_login = None
+        self._ask_kind = ""
+        self._stop = threading.Event()
+        self._jobs = []
+        self._log_lines = []
+        self._purchases: list[dict] = []
+        self._device_apps: list[dict] = []
+        self._popular = DictList(APP_ROLES, self)
+        self._apps = DictList(APP_ROLES, self)
+        self._mine = DictList(APP_ROLES, self)
+        self._clones = DictList(APP_ROLES, self)
+        self._versions = DictList(VERSION_ROLES, self)
+        self._ipa = DictList(FILE_ROLES, self)
+        self._palette = theme.Palette(self)
+        self._store = None
+        self._load_prefs()
+        self._refresh_palette()
+        self.refresh_ipa()
+        self._refresh_backup()
+        self.themeModeChanged.connect(self._on_chrome_changed)
+        self.accentNameChanged.connect(self._on_chrome_changed)
+        self.heroineNameChanged.connect(self._on_chrome_changed)
+        self.countryChanged.connect(self._persist)
+        self.deleteAfterInstallChanged.connect(self._persist)
+        self.notifyDoneChanged.connect(self._persist)
+        self.autoUpdateChanged.connect(self._persist)
+        self.ipaDirChanged.connect(self._persist)
         if background:
-            self.start_background()
+            QTimer.singleShot(400, self._startup)
 
-    def start_background(self):
-        # сессия живёт только пока открыта программа: остатки прошлого запуска (например, после сбоя) стираем.
-        # `ipatool auth revoke` может идти секунды — в фоне; кнопки на это время заблокированы (start).
-        if (core.IPATOOL_HOME / ".ipatool").exists() or scan_copies():
-            self.start("Удаление сессии прошлого запуска", self.task_wipe_old)
-        # слежение за iPhone импортирует pymobiledevice3 (секунду с лишним под GIL): сначала дорисуем окно
-        QTimer.singleShot(1000, lambda: [threading.Thread(target=fn, daemon=True).start()
-                                         for fn in (self.watch_device,
-                                                    storage.remove_stale_unpacked)])
-        QTimer.singleShot(1500, lambda: self.icons.start(a["id"] for a in self.catalog.apps))
-        QTimer.singleShot(UPDATE_DELAY_MS, self.auto_check_updates)
+    def _store_client(self) -> Store:
+        if self._store is None:
+            self._store = Store(passphrase=secrets.load_passphrase())
+        return self._store
 
-    def task_wipe_old(self):
-        if self.wipe_session():
-            self.log("Найдена сессия Apple ID от прошлого запуска — удалена. Войдите заново.")
+    def _load_prefs(self) -> None:
+        data = prefs.load()
+        self._themeMode = data["themeMode"]
+        self._accentName = data["accentName"]
+        self._heroineName = data["heroineName"]
+        self._country = data["country"] or "ru"
+        self._deleteAfterInstall = data["deleteAfterInstall"]
+        self._notifyDone = data["notifyDone"]
+        self._autoUpdate = data["autoUpdate"]
+        self._skipVersion = data.get("skipVersion") or ""
+        self._ipaDir = data["ipaDir"]
 
-    # ---------- модели и постоянные свойства для QML ----------
+    def _persist(self, *_):
+        prefs.save({
+            "themeMode": self._themeMode,
+            "accentName": self._accentName,
+            "heroineName": self._heroineName,
+            "country": self._country,
+            "deleteAfterInstall": self._deleteAfterInstall,
+            "notifyDone": self._notifyDone,
+            "autoUpdate": self._autoUpdate,
+            "skipVersion": self._skipVersion,
+            "ipaDir": self._ipaDir,
+        })
+
+    def _on_chrome_changed(self, *_):
+        self._refresh_palette()
+        self.heroinesChanged.emit()
+        self.heroineUrlChanged.emit()
+        self._persist()
+
+    def _is_dark(self) -> bool:
+        if self._themeMode == "light":
+            return False
+        if self._themeMode == "dark":
+            return True
+        hints = QGuiApplication.styleHints()
+        return hints.colorScheme() == hints.colorScheme().__class__.Dark
+
+    def _refresh_palette(self) -> None:
+        self._palette.set(theme.palette(self._is_dark(), self._accentName))
+        try:
+            scheme = {"light": Qt.ColorScheme.Light, "dark": Qt.ColorScheme.Dark}.get(
+                self._themeMode, Qt.ColorScheme.Unknown)
+            QGuiApplication.styleHints().setColorScheme(scheme)
+        except Exception:
+            pass
+        self.paletteChanged.emit()
+
+    def current_palette(self):
+        return self._palette
+
+    pal = Property(QObject, lambda self: self._palette, constant=True)
     popular = Property(QObject, lambda self: self._popular, constant=True)
     apps = Property(QObject, lambda self: self._apps, constant=True)
     mine = Property(QObject, lambda self: self._mine, constant=True)
     clones = Property(QObject, lambda self: self._clones, constant=True)
     versions = Property(QObject, lambda self: self._versions, constant=True)
     ipaFiles = Property(QObject, lambda self: self._ipa, constant=True)
-    categories = Property("QVariantList", lambda self: ["Все"] + self.catalog.categories, constant=True)
-    supportUrl = Property(str, lambda self: SUPPORT_URL, constant=True)
-    version = Property(str, lambda self: core.__version__, constant=True)
-    displayName = Property(str, lambda self: getattr(core, "DISPLAY_NAME", "RestoreAppStore"), constant=True)
-    accents = Property("QVariantList", lambda self: self.accent_list(), constant=True)
-    repoUrl = Property(str, lambda self: REPO_URL, constant=True)
-    defaultIpaDir = Property(str, lambda self: str(self.default_out), constant=True)
+    defaultIpaDir = Property(str, lambda self: str(paths.default_ipa_dir()), constant=True)
+
+    categoriesChanged = Signal()
+
+    @Property("QVariantList", notify=categoriesChanged)
+    def categories(self):
+        genres = sorted({(row.get("genre") or row.get("kind") or "").strip()
+                         for model in (self._apps, self._popular)
+                         for row in model._rows if (row.get("genre") or row.get("kind"))})
+        return ["Все"] + [g for g in genres if g]
+
+    def _accent_list(self):
+        rows = []
+        dark = self._is_dark()
+        for key, (title, light, dark_acc) in theme.ACCENTS.items():
+            pal = dark_acc if dark else light
+            rows.append({
+                "key": key,
+                "title": title,
+                "color": pal["accent"],
+                "grad1": pal["grad1"],
+                "grad2": pal["grad2"],
+            })
+        return rows
+
+    accents = Property("QVariantList", _accent_list, notify=themeModeChanged)
+
+    heroinesChanged = Signal()
+    heroineUrlChanged = Signal()
+
+    @Property("QVariantList", notify=heroinesChanged)
+    def heroines(self):
+        dark = self._is_dark()
+        rows = []
+        for key, info in theme.HEROINES.items():
+            rows.append({"key": key, "title": info["title"], "url": theme.heroine_url(key, dark)})
+        return rows
+
+    @Property(str, notify=heroineUrlChanged)
+    def heroineUrl(self):
+        return theme.heroine_url(self._heroineName, self._is_dark())
 
     @Property(str, constant=True)
     def greeting(self):
-        h = datetime.datetime.now().hour
-        return "Доброй ночи" if h < 5 else "Доброе утро" if h < 12 else "Добрый день" if h < 18 else "Добрый вечер"
+        return "С возвращением" if self._loggedIn else "Добро пожаловать"
 
     @Property(str, constant=True)
     def qrUrl(self):
-        """Фирменный QR CloudTips (assets/cloudtips_qr.png); без него — QR по ссылке через segno."""
-        for p in (core.BUNDLE / "cloudtips_qr.png", core.HERE / "assets" / "cloudtips_qr.png"):
-            if p.is_file():
-                return QUrl.fromLocalFile(str(p)).toString()
+        found = paths.resource("cloudtips_qr.png")
+        if found:
+            return paths.file_url(found)
         try:
             import segno
-            p = core.DATA_DIR / "support_qr.png"
-            core.DATA_DIR.mkdir(parents=True, exist_ok=True)
-            segno.make(SUPPORT_URL, error="m").save(str(p), scale=8, border=4)
-            return QUrl.fromLocalFile(str(p)).toString()
-        except Exception:  # noqa: BLE001 — нет segno: в окне останется ссылка
+            dest = paths.data_dir() / "support-qr.png"
+            if not dest.is_file():
+                segno.make(core.SUPPORT_URL, error="m").save(str(dest), scale=8, border=4)
+            return paths.file_url(dest)
+        except Exception:
             return ""
 
-    # ---------- связь с рабочими потоками ----------
-    def post(self, fn):
-        """Выполнить fn в главном потоке (можно звать из любого)."""
-        self._posted.emit(fn)
+    def _startup(self):
+        self._run(self._restore_session, self._on_session)
+        self._run(self._probe_device, self._on_device)
+        if self._autoUpdate:
+            QTimer.singleShot(1500, lambda: self.checkUpdates(silent=True))
+        QTimer.singleShot(800, self._load_popular)
 
-    def _run_posted(self, fn):
-        try:
-            fn()
-        except Exception:  # noqa: BLE001 — ошибка в одном обновлении не должна ронять окно
-            import traceback
-            self.log("Внутренняя ошибка интерфейса:\n" + traceback.format_exc())
+    def _restore_session(self):
+        store = self._store_client()
+        if not store.available():
+            return {"logged": False, "email": "", "note": "ipatool-cpp не найден"}
+        info = store.info()
+        if not info:
+            return {"logged": False, "email": ""}
+        email = str(info.get("email") or info.get("account") or "")
+        return {"logged": bool(info.get("success", True) and email), "email": email}
 
-    def log(self, text):
-        with self._log_lock:
-            self._log_buf.append(text.rstrip("\n"))
-
-    def _flush_log(self):
-        with self._log_lock:
-            lines, self._log_buf = self._log_buf, []
-        if not lines:
+    def _on_session(self, result, error):
+        if error or not result:
             return
-        self.logAppended.emit("\n".join(lines))
-        for ln in reversed(lines):
-            last = ln.strip().splitlines()[-1] if ln.strip() else ""
-            if last and not last.startswith("$"):
-                self.status = last[:150]
-                break
+        self.loggedIn = bool(result.get("logged"))
+        self.account = result.get("email") or ""
+        if result.get("note"):
+            self.log(result["note"])
 
-    def set_status(self, text):
-        self.post(lambda: setattr(self, "status", text))
+    def _probe_device(self):
+        return device_svc.status()
 
-    def set_busy(self, value):
-        if value:
-            self._busy_since = time.monotonic()
-        elif self._busy and self._notifyDone and time.monotonic() - self._busy_since >= NOTIFY_AFTER_S:
-            self.taskFinished.emit()
-        self.busy = value
+    def _on_device(self, result, error):
+        if error or not result:
+            self.deviceState, self.deviceText = "none", "Подключите iPhone кабелем"
+            return
+        self.deviceState = result.get("state") or "none"
+        self.deviceText = result.get("text") or ""
+        self._device_apps = result.get("apps") or []
 
-    def open_log(self):
-        self.logOpen = True
+    def _load_popular(self):
+        if self._demo:
+            return
+
+        def work():
+            try:
+                return itunes.top_free(self._country or "ru")
+            except itunes.ITunesError as exc:
+                raise RuntimeError(str(exc)) from exc
+
+        self._run(work, self._on_popular)
+
+    def _on_popular(self, rows, error):
+        if error or not rows:
+            return
+        self._popular.replace([self._row(item) for item in rows])
+        self.categoriesChanged.emit()
+
+    def _run(self, fn, done=None):
+        def wrap():
+            result, error = None, None
+            try:
+                if self._stop.is_set():
+                    error = RuntimeError("остановлено")
+                else:
+                    result = fn()
+            except Exception as exc:  # noqa: BLE001
+                error = exc
+
+            def finish():
+                if done:
+                    done(result, error)
+                self.busy = False
+                self.taskFinished.emit()
+
+            QTimer.singleShot(0, finish)
+
+        self.busy = True
+        thread = threading.Thread(target=wrap, daemon=True)
+        self._jobs.append(thread)
+        thread.start()
+
+    def log(self, text: str) -> None:
+        line = (text or "").strip()
+        if not line:
+            return
+        self._log_lines.append(line)
+        try:
+            with paths.log_path().open("a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
+        self.logAppended.emit(line)
 
     def show_notice(self, title, text):
         self.noticeRequested.emit(title, text)
 
-    def ask_yes_no(self, title, text):
-        return QMessageBox.question(None, title, text) == QMessageBox.Yes
+    @Slot()
+    def openSettings(self):
+        pass
 
-    def ask_file(self, title, folder, filters):
-        with storage.registry_untouched():  # QFileDialog запоминает папку в реестре — см. registry_untouched
-            path, _ = QFileDialog.getOpenFileName(None, title, str(folder), filters)
-        return path or None
-
-    def ask_main(self, title, prompt):
-        """Вопрос из рабочего потока (код 2FA): окно в главном потоке, поток ждёт ответа."""
-        ev, box = threading.Event(), {}
-
-        def show():
-            self._ask = (ev, box)
-            self.askTitle, self.askPrompt, self.askOpen = title, prompt, True
-        self.post(show)
-        ev.wait()
-        return box.get("v")
-
-    @Slot(str, bool)
-    def answerAsk(self, text, ok):
-        self.askOpen = False
-        if self._ask:
-            ev, box = self._ask
-            box["v"] = text.strip() if ok and text.strip() else None
-            self._ask = None
-            ev.set()
-
-    # ---------- строки списков ----------
-    @staticmethod
-    def letter_of(name):
-        return next((ch for ch in name if ch.isalnum()), "?").upper()
-
-    @staticmethod
-    def tint_of(app_id):
-        return theme.AVATARS[int(app_id) % len(theme.AVATARS)]
-
-    def app_row(self, a):
-        app_id = a["id"]
-        name, alias = split_disguise(a["name"])
-        st = self.owned_state.get(app_id)
-        return {
-            "appId": app_id, "title": name,
-            "sub": f"под видом «{alias}»" if alias else ("не из каталога — по App ID" if a.get("adhoc")
-                                                          else a.get("cat", "")),
-            "letter": self.letter_of(name), "tint": self.tint_of(app_id), "icon": self.icon_urls.get(app_id, ""),
-            "status": "✓ было у вас" if st is True else "нет в истории" if st is False else "",
-            "statusKind": "ok" if st is True else "none" if st is False else "",
-            "selected": app_id in self.selected,
-            "copies": self.catalog.copies_note(a).lstrip(" ·"),
-        }
-
-    def app_models(self):
-        return self._popular, self._apps, self._mine
-
-    def refresh_list_keep(self):
-        """Обновить отметки «было у вас» во всех списках, не сбрасывая прокрутку."""
-        for m in self.app_models():
-            m.refresh_all()
-        if self.detail is not None:
-            self.paint_clones(self.detail)
-
-    def on_icon(self, app_id, path):
-        url = QUrl.fromLocalFile(str(path)).toString()
-        self.icon_urls[app_id] = url
-        for m in (*self.app_models(), self._clones):
-            m.refresh_keys([app_id])
-        if self.detailApp.get("id") == app_id:
-            self.detailApp = dict(self.detailApp, icon=url)
-
-    # ---------- страницы ----------
     @Slot(str)
     def showPage(self, name):
-        self.page = name
-        if name == "mine":
-            self.refresh_mine()
-        elif name == "ipa":
-            self.refresh_ipa()
+        if name in ("home", "apps", "mine", "ipa"):
+            self.page = name
 
     @Slot(str)
-    def setQuery(self, q):
-        self._query = q
-        self.apply_filter()
+    def setQuery(self, text):
+        self._last_query = text
+        ref = parse_app_ref(text)
+        if self._demo:
+            return
+        if ref["kind"] == "empty":
+            self._apps.replace([])
+            return
+
+        def work():
+            if ref["kind"] == "id":
+                found = itunes.lookup(ref["value"], self._country or "ru")
+                return [found] if found else []
+            if ref["kind"] == "bundle":
+                try:
+                    return self._store_client().search(ref["value"])
+                except StoreError:
+                    return itunes.search(ref["value"], self._country or "ru")
+            try:
+                rows = self._store_client().search(ref["value"]) if self._loggedIn else []
+            except StoreError:
+                rows = []
+            return rows or itunes.search(ref["value"], self._country or "ru")
+
+        def done(rows, error):
+            if error:
+                self.log(str(error))
+                self.show_notice("Поиск", str(error))
+                return
+            items = [self._row(item, genre=item.get("genre") or item.get("kind") or "") for item in (rows or [])]
+            if self._category != "Все":
+                items = [row for row in items if row.get("genre") == self._category]
+            self._apps.replace(items)
+            self.categoriesChanged.emit()
+
+        self._run(work, done)
 
     @Slot(str)
-    def setCategory(self, c):
-        self.category = c
-        self.apply_filter()
-
-    def apply_filter(self):
-        q = self._query.strip()
-        items = self.catalog.search(q, self.purchases) if q else self.catalog.by_name
-        if self._category != "Все" and not parse_app_ref(q):
-            items = [a for a in items if a.get("cat") == self._category]
-        self._apps.set_items(items)
-
-    def my_removed(self):
-        base = self.purchases
-        if self._onlyRemoved and self.avail is not None:
-            base = [a for a in base if a["id"] not in self.avail]
-        return [dict(self.catalog.byid.get(a["id"], {}), **a) for a in base]
-
-    def refresh_mine(self):
-        self._mine.update_items(self.my_removed())  # без сброса: прокрутка «Мои» остаётся на месте
+    def setCategory(self, name):
+        self.category = name or "Все"
+        if getattr(self, "_last_query", ""):
+            self.setQuery(self._last_query)
 
     @Slot(bool)
     def setOnlyRemoved(self, on):
-        self.onlyRemoved = on
-        self.refresh_mine()
-
-    def refresh_ipa(self):
-        files = self.ipa_files()
-        self.update_ipa_summary(files)
-        rows = []
-        for p in files[:200]:
-            m = re.search(r"_(\d{6,12})(?:_v(\d+))?\.ipa$", p.name)
-            app_id = int(m.group(1)) if m else 0
-            st = p.stat()
-            rows.append({"path": str(p), "title": p.stem.replace("_", " "), "letter": self.letter_of(p.stem),
-                         "tint": self.tint_of(app_id), "icon": self.icon_urls.get(app_id, ""),
-                         "info": f"{st.st_size / 1048576:.0f} МБ · "
-                                 + datetime.datetime.fromtimestamp(st.st_mtime).strftime("%d.%m.%Y")})
-        self._ipa.set_items(rows)
+        self.onlyRemoved = bool(on)
+        self._refresh_mine()
 
     @Slot()
     def connectDevice(self):
-        if self.busy:
-            self.show_notice("Подключение iPhone", "Дождитесь окончания текущей операции.")
-            return
-        self.start("Разблокируйте iPhone и подтвердите «Доверять» на его экране", self.task_connect_device)
-
-    def update_device(self):
-        d = self.device
-        if not d:
-            self.deviceState, self.deviceText = "none", "iPhone не подключён"
-        elif d.get("state") in ("driver", "error", "trust"):
-            self.deviceState = d["state"]
-            self.deviceText = d.get("message") or "Нажмите «Доверять» на iPhone"
-        elif not d.get("paired"):
-            self.deviceState, self.deviceText = "trust", "Разблокируйте iPhone и нажмите «Подключить»"
-        else:
-            self.deviceState = "ok"
-            self.deviceText = f"{d.get('model') or 'iPhone'} · iOS {d.get('ios') or '—'}"
-
-    def item_of(self, list_name, row):
-        model = {"popular": self._popular, "apps": self._apps, "mine": self._mine, "clones": self._clones}[list_name]
-        return model.items[row] if 0 <= row < len(model.items) else None
-
-    # ---------- выбор нескольких ----------
-    @Slot(str, int)
-    def toggleSelected(self, list_name, row):
-        app = self.item_of(list_name, row)
-        if app is None:
-            return
-        if app["id"] in self.selected:
-            del self.selected[app["id"]]
-        else:
-            self.selected[app["id"]] = app
-        self._selection_changed([app["id"]])
-
-    def clear_selection(self):
-        ids = list(self.selected)
-        self.selected.clear()
-        self._selection_changed(ids)
+        self.log("Проверяю iPhone…")
+        self._run(self._probe_device, self._on_device)
 
     @Slot()
-    def clearSelection(self):
-        self.clear_selection()
-
-    def _selection_changed(self, ids):
-        for m in self.app_models():
-            m.refresh_keys(ids)
-        n = len(self.selected)
-        self.selectedCount = n
-        self.selectedText = f"Выбрано: {n} {plural(n, 'приложение', 'приложения', 'приложений')}" if n else ""
-
-    @Slot()
-    def installSelected(self):
-        self.on_batch()
-
-    # ---------- вход и выход ----------
-    @Slot(str)
     def openLogin(self, note=""):
-        if self._loggedIn:
-            return
-        self.loginNote = note or "Нужен Apple ID, на котором приложения были раньше"
+        self.loginNote = note or "Войдите в Apple ID, с которого покупали приложения."
         self.loginOpen = True
 
     @Slot(str, str)
     def login(self, email, password):
-        self.on_login(email, password)
+        email = (email or "").strip()
+        if not email or not password:
+            self.show_notice("Вход", "Введите адрес и пароль Apple ID")
+            return
+        self._pending_login = {"email": email, "password": password}
+        self._do_login(None)
 
-    def on_login_result(self, ok, who):
-        self.loggedIn, self.account = ok, (who if ok else "")
-        if ok:
+    def _do_login(self, code):
+        pending = self._pending_login or {}
+
+        def work():
+            return self._store_client().login(pending.get("email", ""), pending.get("password", ""), code)
+
+        def done(result, error):
+            if error and isinstance(error, StoreError) and error.needs_2fa:
+                self._ask_kind = "2fa"
+                self.askTitle = "Код проверки"
+                self.askPrompt = "Введите код, который прислала Apple."
+                self.askOpen = True
+                return
+            self._pending_login = None
+            if error:
+                self.log(str(error))
+                self.show_notice("Вход", str(error))
+                return
+            email = (result or {}).get("email") or pending.get("email") or ""
+            self.loggedIn = True
+            self.account = email
             self.loginOpen = False
-            if self.after_login == "scan":
-                self.after_login = None
-                self.showPage("mine")
-                self.when_idle(self.on_scan)
-        self.refresh_mine()
+            self.log(f"Вход выполнен: {email}")
 
-    def when_idle(self, fn):
-        if self._busy:
-            QTimer.singleShot(300, lambda: self.when_idle(fn))
-        else:
-            fn()
+        self._run(work, done)
+
+    @Slot(str, bool)
+    def answerAsk(self, text, ok):
+        self.askOpen = False
+        if self._ask_kind == "2fa":
+            self._ask_kind = ""
+            if ok and text.strip():
+                self._do_login(text.strip())
+            else:
+                self._pending_login = None
+                self.log("Вход отменён")
 
     @Slot()
     def logout(self):
-        if self._busy:
-            self.show_notice("Подождите", "Сначала дождитесь окончания текущей операции или нажмите «Остановить».")
-            return
-        # всё, что знали об аккаунте, забываем сразу: на общем компьютере следующий человек не должен видеть
-        # чужие покупки, а его находки — смешиваться с ними
-        storage.forget_email()
-        self.close_detail()  # её проверки больше не повторяются (d["alive"] = False)
-        self.purchases, self.avail = [], None
-        self.owned_state.clear()
-        self.clear_selection()
-        self.refresh_list_keep()
-        self.on_login_result(False, "")
-        self.showPage("home")
-        self.start("Выход из Apple ID", self.task_logout)  # сессию — в фоне: revoke идёт секунды
+        def work():
+            try:
+                self._store_client().revoke()
+            except StoreError:
+                pass
 
-    def add_found(self, found):
-        """Найденное «Найти мои удалённые» — в «Мои»: к уже загруженным покупкам, без перехода на страницу
-        (поиск идёт минутами, а находки приходят по одной — человек тем временем может смотреть каталог)."""
-        known = {a["id"] for a in self.purchases}
-        self.purchases = sorted(self.purchases + [{"id": i, "name": n} for i, n in found.items() if i not in known],
-                                key=lambda a: a["name"].casefold())
-        for i in found:
-            self.owned_state[i] = True
-        # только строки найденных: пересчёт всех ~1400 строк на каждую находку дольше кадра — окно теряло кадры
-        for m in (self._popular, self._apps):
-            m.refresh_keys(list(found))
-        if self.detail is not None:
-            self.paint_clones(self.detail)
-        self.refresh_mine()
+        def done(_result, _error):
+            self.loggedIn = False
+            self.account = ""
+            self._purchases = []
+            self._mine.replace([])
+            self.log("Вы вышли из Apple ID")
 
-    def on_purchases_result(self, acc, avail):
-        self.purchases = [{"id": i, "name": n} for i, n in sorted(acc.items(), key=lambda kv: kv[1].casefold())]
-        self.avail = avail
-        for i in acc:
-            self.owned_state[i] = True
-        self.refresh_list_keep()
-        self.showPage("mine")
-
-    # ---------- кнопки ----------
-    @Slot()
-    def findMine(self):
-        if not self._loggedIn:
-            self.after_login = "scan"
-            self.openLogin("Войдите, чтобы найти ваши удалённые приложения")
-            return
-        self.showPage("mine")
-        self.on_scan()
+        self._run(work, done)
 
     @Slot()
     def loadPurchases(self):
-        if not self._loggedIn:
-            self.openLogin("")
+        if not self._loggedIn and not self._demo:
+            self.openLogin("Сначала войдите в Apple ID, чтобы загрузить покупки.")
             return
-        self.on_purchases()
+
+        def work():
+            return self._store_client().list_purchases(entire=True)
+
+        def done(rows, error):
+            if error:
+                self.log(str(error))
+                self.show_notice("Покупки", str(error))
+                return
+            self._purchases = rows or []
+            self._refresh_mine(self._purchases)
+            self.log(f"Покупок в истории: {len(self._purchases)}")
+
+        self._run(work, done)
+
+    @Slot()
+    def findMine(self):
+        if not self._loggedIn and not self._demo:
+            self.openLogin("Сначала войдите в Apple ID.")
+            return
+
+        def work():
+            rows = self._purchases or self._store_client().list_purchases(entire=True)
+            missing = []
+            for item in rows:
+                app_id = item.get("id")
+                if not app_id:
+                    continue
+                if not itunes.still_on_store(app_id, self._country or "ru"):
+                    missing.append(item)
+            return rows, missing
+
+        def done(result, error):
+            if error:
+                self.log(str(error))
+                self.show_notice("Проверка", str(error))
+                return
+            rows, missing = result
+            self._purchases = rows
+            self._refresh_mine(missing if self._onlyRemoved else rows, removed_ids={i.get("id") for i in missing})
+            self.log(f"Пропавших из каталога: {len(missing)} из {len(rows)}")
+
+        self.log("Сверяю покупки с каталогом App Store…")
+        self._run(work, done)
+
+    def _refresh_mine(self, rows=None, removed_ids=None):
+        rows = rows if rows is not None else self._purchases
+        installed = {app.get("id") or app.get("bundle") for app in self._device_apps}
+        out = []
+        for item in rows:
+            row = self._row(item)
+            app_id = row["appId"]
+            if removed_ids is not None and app_id in removed_ids:
+                row["status"] = "нет в App Store"
+                row["statusKind"] = "warn"
+            elif installed and (app_id in installed or item.get("bundle") in installed):
+                row["status"] = "на iPhone"
+                row["statusKind"] = "ok"
+            out.append(row)
+        self._mine.replace(out)
 
     @Slot()
     def netCheck(self):
-        self.on_netcheck()
+        def work():
+            itunes.top_free(self._country or "ru", limit=1)
+            return True
+
+        def done(_result, error):
+            if error:
+                self.show_notice("Сеть", str(error))
+            else:
+                self.show_notice("Сеть", "Каталог App Store доступен.")
+
+        self._run(work, done)
 
     @Slot()
     def stop(self):
-        self.on_stop()
+        self._stop.set()
+        self.log("Остановка запрошена")
+        self._stop = threading.Event()
+
+    @Slot(str, int)
+    def toggleSelected(self, list_name, row):
+        model = self._model(list_name)
+        if model is None:
+            return
+        model.toggle(row)
+        self._recount()
+
+    @Slot()
+    def clearSelection(self):
+        for model in (self._popular, self._apps, self._mine, self._ipa):
+            model.clear_selection()
+        self._recount()
+
+    def _recount(self):
+        rows = []
+        for model in (self._popular, self._apps, self._mine):
+            rows.extend(model.selected_rows())
+        self.selectedCount = len(rows)
+        self.selectedText = f"Выбрано: {len(rows)}" if rows else ""
+
+    @Slot()
+    def installSelected(self):
+        rows = []
+        for model in (self._popular, self._apps, self._mine):
+            rows.extend(model.selected_rows())
+        if not rows:
+            return
+        self._download_many(rows, install=True)
 
     @Slot()
     def installFile(self):
-        self.on_install_file()
+        path, _ = QFileDialog.getOpenFileName(None, "Выберите IPA", self._ipaDir, "IPA (*.ipa)")
+        if path:
+            self.installIpa(path)
 
     @Slot(str)
     def installIpa(self, path):
-        self.install_path(path)
+        def work():
+            device_svc.install_ipa(Path(path))
+            return path
+
+        def done(_result, error):
+            if error:
+                self.log(str(error))
+                self.show_notice("Установка", str(error))
+                return
+            self.log(f"Установлено: {path}")
+            if self._notifyDone:
+                self.show_notice("Установка", "Приложение установлено на iPhone.")
+            if self._deleteAfterInstall:
+                try:
+                    Path(path).unlink()
+                    self.refresh_ipa()
+                except OSError:
+                    pass
+            self.connectDevice()
+
+        self._run(work, done)
 
     @Slot()
     def openFolder(self):
-        try:
-            core.OUT_DIR.mkdir(parents=True, exist_ok=True)
-            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(core.OUT_DIR.resolve()))):
-                raise OSError("Проводник не смог открыть папку")
-        except OSError as exc:
-            self.show_notice("Папка с IPA", f"Не удалось открыть {core.OUT_DIR}: {exc}")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(self._ipaDir))
+
+    @Slot()
+    def chooseIpaDir(self):
+        folder = QFileDialog.getExistingDirectory(None, "Папка для IPA", self._ipaDir)
+        if folder:
+            self.ipaDir = folder
+            self.refresh_ipa()
+
+    @Slot()
+    def resetIpaDir(self):
+        self.ipaDir = str(paths.default_ipa_dir())
+        self.refresh_ipa()
+
+    @Slot()
+    def clearIpa(self):
+        n = ipa_svc.clear_folder(Path(self._ipaDir))
+        self.refresh_ipa()
+        self.log(f"Удалено файлов IPA: {n}")
+
+    def refresh_ipa(self):
+        rows = ipa_svc.list_files(Path(self._ipaDir))
+        for row in rows:
+            row["tint"] = self._tint(row.get("title") or "")
+            row["letter"] = (row.get("title") or "?")[:1].upper()
+        self._ipa.replace(rows)
+        self.ipaSummary = f"Файлов IPA: {len(rows)}" if rows else "Скачанных файлов нет"
+
+    @Slot(str, int)
+    def openDetail(self, list_name, row):
+        model = self._model(list_name)
+        item = model.at(row) if model else None
+        if not item:
+            return
+        app = {
+            "id": item.get("appId") or item.get("id") or "",
+            "name": item.get("title") or item.get("name") or "",
+            "letter": item.get("letter") or "?",
+            "tint": item.get("tint") or theme.AVATARS[0],
+            "icon": item.get("icon") or "",
+            "bundle": item.get("bundle") or "",
+        }
+        self.detailApp = app
+        self.detailOpen = True
+        self.versionMode = "loading"
+        self.selectedVersion = ""
+        self.actionsEnabled = False
+        self.detailChecks = {
+            "acc": {"text": "вход выполнен" if self._loggedIn else "нужен вход в Apple ID",
+                    "kind": "ok" if self._loggedIn else "warn"},
+            "phone": {"text": self._deviceText, "kind": "ok" if self._deviceState == "ok" else "warn"},
+            "store": {"text": "проверяю каталог…", "kind": ""},
+        }
+        if self._demo:
+            self.versionMode = "none"
+            return
+
+        def work():
+            store_item = None
+            try:
+                store_item = itunes.lookup(app["id"], self._country or "ru") if app["id"] else None
+            except itunes.ITunesError:
+                store_item = None
+            versions = []
+            err = ""
+            try:
+                versions = self._store_client().list_versions(app_id=app["id"] or None, bundle=app["bundle"] or None)
+            except StoreError as exc:
+                err = str(exc)
+            return store_item, versions, err
+
+        def done(result, error):
+            if error:
+                self.versionMode = "error"
+                self.detailErr = str(error)
+                return
+            store_item, versions, err = result
+            checks = dict(self._detailChecks)
+            if store_item:
+                checks["store"] = {"text": "есть в App Store", "kind": "ok"}
+            else:
+                checks["store"] = {"text": "не найдено в текущей стране каталога", "kind": "warn"}
+            self.detailChecks = checks
+            if err and not versions:
+                self.versionMode = "error"
+                self.detailErr = err
+                return
+            if not versions:
+                self.versionMode = "none"
+                self.actionsEnabled = bool(self._loggedIn)
+                return
+            self._versions.replace(versions)
+            self.selectedVersion = versions[0]["value"]
+            self.versionMode = "list"
+            self.actionsEnabled = bool(self._loggedIn)
+
+        self._run(work, done)
+
+    @Slot()
+    def closeDetail(self):
+        self.detailOpen = False
+
+    @Slot()
+    def detailRecheck(self):
+        if self._detailApp:
+            self.openDetail_from_app(self._detailApp)
+
+    def openDetail_from_app(self, app):
+        self._apps.replace([self._row({"id": app.get("id"), "name": app.get("name"), "bundle": app.get("bundle"), "icon": app.get("icon")})] + list(self._apps._rows))
+        self.openDetail("apps", 0)
+
+    @Slot()
+    def detailMore(self):
+        self.moreText = "Версии отдаёт ipatool-cpp. Старые сборки Apple может больше не подписывать."
+
+    @Slot(bool)
+    def detailAction(self, install):
+        app = self._detailApp or {}
+        self._download_many([{"appId": app.get("id"), "title": app.get("name"), "bundle": app.get("bundle"),
+                              "version": self._selectedVersion}], install=install)
+
+    def _download_many(self, rows, install=False):
+        folder = Path(self._ipaDir)
+        folder.mkdir(parents=True, exist_ok=True)
+
+        def work():
+            results = []
+            for item in rows:
+                if self._stop.is_set():
+                    break
+                app_id = item.get("appId") or item.get("id")
+                bundle = item.get("bundle")
+                title = item.get("title") or item.get("name") or app_id or "app"
+                dest = folder / f"{_safe_name(title)}.ipa"
+                path = self._store_client().download(
+                    dest, app_id=app_id, bundle=bundle or None,
+                    version_id=item.get("version") or None, buy=self._purchase,
+                )
+                results.append(path)
+                if install:
+                    device_svc.install_ipa(path)
+                    if self._deleteAfterInstall:
+                        try:
+                            path.unlink()
+                        except OSError:
+                            pass
+            return results
+
+        def done(results, error):
+            self.refresh_ipa()
+            if error:
+                self.log(str(error))
+                self.show_notice("Загрузка", str(error))
+                return
+            self.log(f"Готово файлов: {len(results or [])}")
+            if self._notifyDone:
+                self.show_notice("Готово", "Установка завершена." if install else "IPA сохранён в папку загрузок.")
+
+        self._run(work, done)
+
+    @Slot()
+    @Slot(bool)
+    def checkUpdates(self, silent=False):
+        def work():
+            return updater.check_latest()
+
+        def done(info, error):
+            if error:
+                self.updateText = str(error)
+                self.updateUrl = ""
+                if not silent:
+                    self.show_notice("Обновления", str(error))
+                return
+            version = info.get("version") or ""
+            self.updateUrl = info.get("html_url") or ""
+            self._update_info = info
+            if info.get("newer"):
+                if silent and version == self._skipVersion:
+                    self.updateText = f"Версия {version} пропущена"
+                    return
+                self.updateVersion = version
+                self.updateNotes = info.get("notes") or ""
+                self.updateText = f"Доступна {version}"
+                self.updateOpen = True
+            else:
+                self.updateText = f"У вас последняя версия ({core.__version__})"
+                if not silent:
+                    self.show_notice("Обновления", self.updateText)
+
+        self._run(work, done)
+
+    @Slot(str)
+    def answerUpdate(self, action):
+        self.updateOpen = False
+        info = getattr(self, "_update_info", None) or {}
+        if action == "skip":
+            self._skipVersion = self._updateVersion
+            self._persist()
+            self.updateText = f"Версия {self._updateVersion} пропущена"
+            return
+        if action == "later":
+            return
+        if action == "download":
+            if not getattr(sys_frozen(), "frozen", False) and not getattr(__import__("sys"), "frozen", False):
+                url = info.get("html_url") or self._updateUrl
+                if url:
+                    self.openUrl(url)
+                    return
+
+            def work():
+                updater.install_update(info, log=self.log)
+
+            def done(_result, error):
+                if error:
+                    self.log(str(error))
+                    self.show_notice("Обновление", str(error))
+
+            self._run(work, done)
+
+    @Slot()
+    def rollbackUpdate(self):
+        def work():
+            updater.rollback()
+
+        def done(_result, error):
+            if error:
+                self.show_notice("Откат", str(error))
+
+        self._run(work, done)
+
+    def _refresh_backup(self):
+        found = updater.backup_dir()
+        self.backupAvailable = bool(found)
+        self.backupText = f"Есть копия: {found.name}" if found else "Резервной копии нет"
 
     @Slot(str)
     def openUrl(self, url):
-        # только известные ссылки: страница доната и релизы/страница программы на GitHub
-        if not (url == SUPPORT_URL or url == REPO_URL or url.startswith(REPO_URL + "/")):
-            self.log(f"Ссылка не открыта — она не из списка ссылок программы: {url}")
+        if not _allowed_url(url):
+            self.show_notice("Ссылка", "Этот адрес программа не открывает.")
             return
-        if not QDesktopServices.openUrl(QUrl(url)):
-            self.log(f"Не удалось открыть браузер. Ссылка: {url}")
+        QDesktopServices.openUrl(QUrl(url))
 
     @Slot(str)
     def copyText(self, text):
-        QGuiApplication.clipboard().setText(text)
+        QApplication.clipboard().setText(text or "")
+
+    @Slot()
+    def open_log(self):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.log_path())))
 
     @Slot(result=str)
     def helpText(self):
         return (
-            "1. iPhone и кабель. Разблокируйте телефон и нажмите «Доверять».\n\n"
-            + ("2. На Mac ничего дополнительно ставить не нужно: iPhone macOS видит сама.\n\n"
-               if sys.platform == "darwin" else
-               "2. Драйвер Apple на Windows: iTunes или «Устройства Apple» (Apple Devices) из Microsoft Store.\n\n")
-            + "3. Apple ID, под которым приложение когда-то скачивалось. Apple отдаёт только то, что есть в "
-            "истории покупок этого аккаунта.\n\n"
-            "4. Самый первый вход на компьютере может занять до 10–15 минут: ipatool скачивает служебные "
-            "файлы Apple.\n\n"
-            "5. Если вход или скачивание не работает — «Проверить связь с Apple» в меню боковой панели. "
-            "Частые причины: DNS «для обхода блокировок», антивирус с проверкой HTTPS, записи в файле hosts.\n\n"
-            f"Скачанные .ipa хранятся в папке {core.OUT_DIR} и повторно не скачиваются.\n\n"
-            f"Версия {core.__version__}. Компоненты: " + self.tool_status())
+            f"{core.DISPLAY_NAME} {core.__version__}\n\n"
+            "Программа входит в ваш Apple ID через ipatool-cpp, показывает историю покупок, "
+            "скачивает IPA и ставит их на iPhone по кабелю.\n\n"
+            "Пароль Apple ID на диск не записывается: сессию хранит ipatool-cpp в зашифрованном виде, "
+            "а ключ к ней — в Windows Credential Manager или в файле, защищённом DPAPI.\n\n"
+            "Обновления берутся только с GitHub Releases, файл сверяется по SHA-256. "
+            "Если что-то пойдёт не так, в «Настройки → О программе» можно вернуть предыдущую копию.\n\n"
+            f"Журнал: {paths.log_path()}\n"
+            f"Журнал запуска: %LOCALAPPDATA%\\RestoreAppStore\\startup.log"
+        )
 
-    # ---------- настройки ----------
-    @Slot()
-    def openSettings(self):
-        self.refresh_ipa()  # «Загрузки»: сколько места занимают файлы
-
-    @Slot()
-    def chooseIpaDir(self):
-        self.choose_ipa_dir()
-
-    @Slot()
-    def resetIpaDir(self):
-        self.set_ipa_dir(self.default_out)
-
-    @Slot()
-    def clearIpa(self):
-        self.clear_ipa()
-
-    @Slot()
-    def checkUpdates(self):
-        self.check_updates()
-
-    @Slot(str)
-    def answerUpdate(self, action):
-        self.answer_update(action)
-
-    # ---------- панель приложения ----------
-    @Slot(str, int)
-    def openDetail(self, list_name, row):
-        app = self.item_of(list_name, row)
-        if app is not None:
-            self.open_detail(app)
-
-    @Slot()
-    def closeDetail(self):
-        self.close_detail()
-
-    @Slot()
-    def detailRecheck(self):
-        self.recheck_detail()
-
-    @Slot()
-    def detailMore(self):
-        self.more_versions()
-
-    @Slot(bool)
-    def detailAction(self, install):
-        self.detail_action(install)
-
-    # ---------- закрытие ----------
     @Slot()
     def shutdown(self):
-        self._closing = True
-        self.stop_flag = True
-        self.icons.stop()
-        if self.detail is not None:
-            self.detail["alive"] = False
-        close_procs()  # иначе ipatool и установщик продолжили бы работать без окна; новых не запускаем
-        self.wipe_session()
-        storage.forget_email()
+        self._stop.set()
+        self._persist()
+
+    def seed_demo(self) -> None:
+        """Вымышленные данные для снимков и проверки интерфейса. Сеть не вызывается."""
+        self._demo = True
+        self.loggedIn = True
+        self.account = "demo@example.com"
+        self.deviceState = "ok"
+        self.deviceText = "iPhone (демо)"
+        demo = [
+            {"id": "1", "name": "Почта", "genre": "Сервисы", "status": "в истории", "statusKind": "ok"},
+            {"id": "2", "name": "Заметки", "genre": "Продуктивность", "status": "в истории", "statusKind": "ok"},
+            {"id": "3", "name": "Карты", "genre": "Навигация", "status": "нет в App Store", "statusKind": "warn"},
+            {"id": "4", "name": "Музыка", "genre": "Развлечения", "status": "в истории", "statusKind": "ok"},
+        ]
+        rows = [self._row(item, status=item["status"], statusKind=item["statusKind"], genre=item["genre"]) for item in demo]
+        self._popular.replace(rows)
+        self._apps.replace(rows)
+        self._mine.replace(rows[2:3])
+        self.categoriesChanged.emit()
+
+    def _model(self, name):
+        return {"popular": self._popular, "apps": self._apps, "mine": self._mine,
+                "ipa": self._ipa, "clones": self._clones, "versions": self._versions}.get(name)
+
+    def _row(self, item, status="", statusKind="", genre=""):
+        app_id = str(item.get("id") or item.get("appId") or "")
+        name = str(item.get("name") or item.get("title") or "")
+        icon = item.get("icon") or ""
+        if icon and icon.startswith("https://"):
+            local = icon_svc.local_path(app_id, icon)
+            if local:
+                icon = paths.file_url(local)
+        return {
+            "appId": app_id,
+            "title": name,
+            "sub": item.get("price") or item.get("version") or item.get("date") or "",
+            "letter": (name or "?")[:1].upper(),
+            "tint": self._tint(app_id or name),
+            "icon": icon,
+            "status": status,
+            "statusKind": statusKind,
+            "selected": False,
+            "copies": item.get("copies") or "",
+            "bundle": item.get("bundle") or "",
+            "genre": genre or item.get("genre") or item.get("kind") or "",
+        }
+
+    def _tint(self, key: str) -> str:
+        digest = hashlib.sha256((key or "?").encode("utf-8")).digest()
+        return theme.AVATARS[digest[0] % len(theme.AVATARS)]
+
+
+def _safe_name(text: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in " .-_()" else "_" for ch in text).strip()
+    return cleaned[:80] or "app"
+
+
+def _allowed_url(url: str) -> bool:
+    parts = urlsplit(url or "")
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or parts.username:
+        return False
+    allowed = (
+        "github.com", "api.github.com", "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com", "pay.cloudtips.ru", "cloudtips.ru",
+    )
+    return host in allowed or host.endswith(".github.com")
+
+
+def sys_frozen():
+    import sys
+    return sys
