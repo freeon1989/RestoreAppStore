@@ -19,9 +19,9 @@
   <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/badge/платформа-Windows%2010%2F11%20x64-0078D6?logo=windows&logoColor=white" alt="Windows 10/11 x64"></a>
 </p>
 
-Портативная сборка [RestoreIPA](https://github.com/ToXiTy13/RestoreIPA) v1.2.0 для 64-битной Windows 10 или 11. Компонент подключения к App Store в этой сборке — [ipatool-cpp 1.3.4](https://github.com/Sorvigolova/ipatool/releases/tag/1.3.4). Установка не требуется: достаточно скачать exe и запустить.
+RestoreAppStore — самостоятельная программа для 64-битной Windows 10 или 11. Установка не требуется: достаточно скачать exe и запустить.
 
-*A portable Windows build of RestoreIPA: re-download apps from your own App Store purchase history and, if you want, install the IPA on an iPhone.*
+*A Windows 10/11 x64 app to re-download titles from your own App Store purchase history and, if you want, install the IPA on an iPhone.*
 
 > [!IMPORTANT]
 > Программа скачивает приложения с серверов Apple **под вашим Apple ID** и только те, что **уже есть в истории покупок этого аккаунта**. Чужое или никогда не скачанное приложение Apple не отдаст, и программа не пытается это обойти.
@@ -35,7 +35,7 @@
 · [SHA256SUMS.txt](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/SHA256SUMS.txt)
 · [исходники](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-cpp-only-source.zip)
 
-Текущий релиз: **v1.2.0-cpp.1.3.4** (код приложения `1.2.0-local.4`, движок ipatool-cpp 1.3.4). Нужна **64-битная Windows 10 или 11**.
+Текущий релиз: **v1.2.0-cpp.1.3.4**. Нужна **64-битная Windows 10 или 11**.
 
 Запустите скачанный `RestoreAppStore-cpp-only-1.3.4.exe`. Сборка не подписана цифровым сертификатом, поэтому Windows SmartScreen может показать предупреждение «Windows защитила ваш компьютер». Нажмите «Подробнее» → «Выполнить в любом случае».
 
@@ -95,7 +95,6 @@ SHA-256 архива исходников `RestoreAppStore-cpp-only-source.zip`:
 - Светлая и тёмная тема (или как в системе) и четыре цвета акцента.
 - Понятные сообщения об ошибках по-русски и журнал внизу окна.
 
-В этой сборке при запуске выбран движок **ipatool-cpp**. Автопроверка обновлений исходного проекта и кнопки «Поддержать разработчика» в интерфейсе отключены.
 
 ## Что нужно
 
@@ -166,10 +165,8 @@ py -V:3.12 -m unittest discover tests
 
 Полная сборка исходного проекта RestoreIPA через `build.ps1` рассчитана на другой набор движков (официальный ipatool), не на эту cpp-only поставку. Подробности локальных отличий — в [LOCAL_CHANGES.txt](LOCAL_CHANGES.txt).
 
-## Лицензия и авторы
+## Лицензия
 
-[GPL-3.0](LICENSE). Это производная сборка [RestoreIPA](https://github.com/ToXiTy13/RestoreIPA) (ToXiTy13). Движок [ipatool-cpp](https://github.com/Sorvigolova/ipatool) распространяется по MIT; готовый Windows-бинарник движка в опубликованном exe взят из указанного в `LOCAL_CHANGES.txt` источника, лицензии — в каталоге [licenses](licenses) и в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-Поддержать исходного автора RestoreIPA можно на странице его репозитория.
+Программа распространяется по [GPL-3.0](LICENSE). Тексты лицензий сторонних компонентов — в [licenses](licenses) и [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Проект не связан с Apple. App Store, iPhone и iOS — товарные знаки Apple Inc. Используйте программу только для приложений из истории покупок своего Apple ID.
