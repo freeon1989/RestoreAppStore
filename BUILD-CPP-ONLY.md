@@ -1,5 +1,13 @@
 # Сборка портативной версии
 
+Начиная с 1.3.0 Windows-сборка собирается из исходников через `RestoreAppStore.spec`
+(Python 3.12, PySide6, PyInstaller) и движок ipatool-cpp 1.3.4. На Linux для этого
+есть `scripts/build_windows.sh` и `scripts/bundle_icu.sh`. Готовый файл:
+`RestoreAppStore-win-x64.exe`.
+
+Ниже — как собирался более ранний релиз v1.2.0-cpp.1.3.4 (перепаковка готового exe).
+
+
 Код приложения соответствует варианту 1.2.0-local.4 (C++ only), на основе RestoreIPA v1.2.0.
 Этот релиз использует Windows x64 ipatool-cpp 1.3.4 от Sorvigolova.
 

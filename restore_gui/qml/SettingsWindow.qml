@@ -12,13 +12,14 @@ Popup {
     width: Math.min(780, parent.width - 60)
     height: Math.min(540, parent.height - 60)
     modal: true
+    popupType: Popup.Item
     focus: true
     padding: 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     onAboutToShow: backend.openSettings()
 
-    Overlay.modal: Rectangle { color: P.shade }
-    background: Rectangle { radius: 18; color: P.card }
+    Overlay.modal: Rectangle { color: backend.pal.shade }
+    background: Rectangle { radius: 16; color: backend.pal.card; border.color: backend.pal.border }
     enter: Transition {
         NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 140 }
         NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 140; easing.type: Easing.OutCubic }
@@ -32,15 +33,15 @@ Popup {
         Rectangle {
             Layout.fillHeight: true
             Layout.preferredWidth: 210
-            radius: 18
-            color: P.rail
-            Rectangle { anchors.right: parent.right; width: 18; height: parent.height; color: P.rail }  // правый край прямой
-            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: P.border }
+            radius: 16
+            color: backend.pal.rail
+            Rectangle { anchors.right: parent.right; width: 18; height: parent.height; color: backend.pal.rail }  // правый край прямой
+            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: backend.pal.border }
 
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 14; anchors.topMargin: 22
                 spacing: 2
-                Text { text: "Настройки"; color: P.text; font.family: P.font; font.pixelSize: 20
+                Text { text: "Настройки"; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 20
                        font.weight: Font.ExtraBold; Layout.leftMargin: 10; Layout.bottomMargin: 14 }
                 Repeater {
                     model: [["◐", "Оформление"], ["⇣", "Загрузки"], ["⌂", "App Store"], ["◔", "Уведомления"],
@@ -53,14 +54,14 @@ Popup {
                         Layout.fillWidth: true
                         implicitHeight: 40
                         radius: 10
-                        color: current ? P.accentSoft : (navHover.hovered ? P.secondHover : P.rail)
+                        color: current ? backend.pal.accentSoft : (navHover.hovered ? backend.pal.secondHover : backend.pal.rail)
                         Behavior on color { ColorAnimation { duration: 110 } }
                         RowLayout {
                             anchors.fill: parent; anchors.leftMargin: 12; spacing: 10
-                            Text { text: nav.modelData[0]; color: nav.current ? P.accentText : P.muted
+                            Text { text: nav.modelData[0]; color: nav.current ? backend.pal.accentText : backend.pal.muted
                                    font.pixelSize: 19; Layout.preferredWidth: 20; horizontalAlignment: Text.AlignHCenter }
-                            Text { text: nav.modelData[1]; color: nav.current ? P.accentText : P.text
-                                   font.family: P.font; font.pixelSize: 15
+                            Text { text: nav.modelData[1]; color: nav.current ? backend.pal.accentText : backend.pal.text
+                                   font.family: backend.pal.font; font.pixelSize: 15
                                    font.weight: nav.current ? Font.Bold : Font.Medium; Layout.fillWidth: true }
                         }
                         HoverHandler { id: navHover; cursorShape: Qt.PointingHandCursor }
@@ -68,7 +69,7 @@ Popup {
                     }
                 }
                 Item { Layout.fillHeight: true }
-                Text { text: "Restore " + backend.version; color: P.disabled; font.family: P.font; font.pixelSize: 13
+                Text { text: backend.displayName + " " + backend.version; color: backend.pal.disabled; font.family: backend.pal.font; font.pixelSize: 13
                        Layout.leftMargin: 10 }
             }
         }
@@ -212,12 +213,29 @@ Popup {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
-                                Text { text: "Restore " + backend.version; color: P.text; font.family: P.font
+                                Text { text: backend.displayName + " " + backend.version; color: backend.pal.text; font.family: backend.pal.font
                                        font.pixelSize: 22; font.weight: Font.ExtraBold }
-                                Text { text: "Возврат на iPhone приложений, удалённых из российского App Store"
-                                       color: P.muted; font.family: P.font; font.pixelSize: 15
+                                Text { text: "Приложения из истории покупок Apple ID — снова на iPhone"
+                                       color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 15
                                        Layout.fillWidth: true; wrapMode: Text.WordWrap }
                             }
+                        }
+
+                        Group {
+                            Row2 { title: "Проверять обновления при запуске"
+                                   sub: "Только релизы этого проекта на GitHub, без установки «в тихую»."
+                                Toggle { Layout.fillWidth: false; checked: backend.autoUpdate; onToggled: backend.autoUpdate = checked } }
+                            Row2 { title: "Проверить сейчас"
+                                   sub: backend.updateText !== "" ? backend.updateText : "Сверка с GitHub Releases."
+                                   subColor: backend.updateUrl !== "" ? backend.pal.ok : backend.pal.muted
+                                   last: backend.updateUrl === ""
+                                Btn { text: "Проверить"; lock: false; implicitHeight: 34; onClicked: backend.checkUpdates() } }
+                            Row2 { visible: backend.updateUrl !== ""
+                                   title: "Доступна новая версия"
+                                   sub: "Откроется страница релиза. Сверьте SHA-256 перед заменой файла."
+                                   last: true
+                                Btn { text: "Открыть релиз"; kind: "primary"; lock: false; implicitHeight: 34
+                                      onClicked: backend.openUrl(backend.updateUrl) } }
                         }
 
                     }
@@ -232,13 +250,13 @@ Popup {
         property string sub: ""
         Layout.fillWidth: true
         spacing: 4
-        Text { text: parent.title; color: P.text; font.family: P.font; font.pixelSize: 20; font.weight: Font.ExtraBold }
-        Text { text: parent.sub; color: P.muted; font.family: P.font; font.pixelSize: 14; wrapMode: Text.WordWrap
+        Text { text: parent.title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 20; font.weight: Font.ExtraBold }
+        Text { text: parent.sub; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14; wrapMode: Text.WordWrap
                Layout.fillWidth: true; visible: text !== "" }
     }
 
     component Label2: Text {
-        color: P.muted; font.family: P.font; font.pixelSize: 13; font.weight: Font.Bold
+        color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13; font.weight: Font.Bold
         font.capitalization: Font.AllUppercase; font.letterSpacing: 0.6
     }
 
@@ -248,8 +266,8 @@ Popup {
         Layout.fillWidth: true
         implicitHeight: col.implicitHeight
         radius: 14
-        color: P.card
-        border.color: P.border
+        color: backend.pal.card
+        border.color: backend.pal.border
         ColumnLayout { id: col; width: parent.width; spacing: 0 }
     }
 
@@ -258,7 +276,7 @@ Popup {
         id: row
         property string title: ""
         property string sub: ""
-        property color subColor: P.muted
+        property color subColor: backend.pal.muted
         property int subElide: Text.ElideNone
         property bool last: false
         default property alias controls: ctl.data
@@ -271,16 +289,16 @@ Popup {
                 id: texts
                 Layout.fillWidth: true
                 spacing: 2
-                Text { text: row.title; color: P.text; font.family: P.font; font.pixelSize: 15; font.weight: Font.DemiBold
+                Text { text: row.title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; font.weight: Font.DemiBold
                        Layout.fillWidth: true; wrapMode: Text.WordWrap }
-                Text { text: row.sub; color: row.subColor; font.family: P.font; font.pixelSize: 13
+                Text { text: row.sub; color: row.subColor; font.family: backend.pal.font; font.pixelSize: 13
                        Layout.fillWidth: true; visible: text !== ""
                        wrapMode: row.subElide === Text.ElideNone ? Text.WordWrap : Text.NoWrap; elide: row.subElide }
             }
             RowLayout { id: ctl; spacing: 6 }
         }
         Rectangle { visible: !row.last; anchors.bottom: parent.bottom; x: 16; width: parent.width - 16; height: 1
-                    color: P.border }
+                    color: backend.pal.border }
     }
 
     // тема: карточка с маленьким макетом окна
@@ -293,9 +311,9 @@ Popup {
         Rectangle {
             implicitWidth: 150; implicitHeight: 96
             radius: 12
-            color: P.card
+            color: backend.pal.card
             border.width: card.on ? 2 : 1
-            border.color: card.on ? P.accent : (cardHover.hovered ? P.borderLight : P.border)
+            border.color: card.on ? backend.pal.accent : (cardHover.hovered ? backend.pal.borderLight : backend.pal.border)
             Row {
                 anchors.fill: parent; anchors.margins: card.on ? 6 : 5
                 Mock { width: card.mode === "system" ? parent.width / 2 : parent.width; height: parent.height
@@ -308,11 +326,11 @@ Popup {
         }
         RowLayout {
             spacing: 6
-            Rectangle { width: 14; height: 14; radius: 7; color: card.on ? P.accent : P.card; border.width: 2
-                        border.color: card.on ? P.accent : P.borderLight
+            Rectangle { width: 14; height: 14; radius: 7; color: card.on ? backend.pal.accent : backend.pal.card; border.width: 2
+                        border.color: card.on ? backend.pal.accent : backend.pal.borderLight
                         Rectangle { anchors.centerIn: parent; width: 6; height: 6; radius: 3; color: "white"
                                     visible: card.on } }
-            Text { text: card.title; color: P.text; font.family: P.font; font.pixelSize: 14
+            Text { text: card.title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
                    font.weight: card.on ? Font.Bold : Font.Medium }
         }
     }
@@ -324,16 +342,16 @@ Popup {
         property bool leftRound: true
         property bool rightRound: true
         radius: 8
-        color: dark ? "#0f1413" : "#f3f5f4"
+        color: dark ? "#161311" : "#F3EEE6"
         Rectangle { visible: !mock.leftRound; width: 8; height: parent.height; color: parent.color }
         Rectangle { visible: !mock.rightRound; anchors.right: parent.right; width: 8; height: parent.height
                     color: parent.color }
-        Rectangle { width: parent.width; height: 14; radius: mock.radius; color: mock.dark ? "#151b19" : "#ffffff"
+        Rectangle { width: parent.width; height: 14; radius: mock.radius; color: mock.dark ? "#1C1916" : "#FFFBF6"
                     Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 6; color: parent.color } }
         Rectangle { x: 8; y: 24; width: parent.width * 0.55; height: 6; radius: 3
-                    color: mock.dark ? "#e9eeec" : "#15181c"; opacity: 0.85 }
-        Rectangle { x: 8; y: 36; width: parent.width - 16; height: 22; radius: 5; color: mock.dark ? "#19201e" : "#ffffff" }
-        Rectangle { x: 8; y: 64; width: parent.width * 0.4; height: 10; radius: 5; color: P.accent }
+                    color: mock.dark ? "#F3EEE6" : "#1C1814"; opacity: 0.85 }
+        Rectangle { x: 8; y: 36; width: parent.width - 16; height: 22; radius: 5; color: mock.dark ? "#221E1A" : "#FFFBF6" }
+        Rectangle { x: 8; y: 64; width: parent.width * 0.4; height: 10; radius: 5; color: backend.pal.accent }
     }
 
     // цвет акцента: круг с градиентом и подпись
@@ -345,9 +363,9 @@ Popup {
         Rectangle {
             Layout.alignment: Qt.AlignHCenter
             width: 46; height: 46; radius: 23
-            color: P.card
+            color: backend.pal.card
             border.width: 2
-            border.color: sw.on ? sw.info.color : (swHover.hovered ? P.borderLight : P.card)
+            border.color: sw.on ? sw.info.color : (swHover.hovered ? backend.pal.borderLight : backend.pal.card)
             Rectangle {
                 anchors.centerIn: parent
                 width: 36; height: 36; radius: 18
@@ -362,7 +380,7 @@ Popup {
             HoverHandler { id: swHover; cursorShape: Qt.PointingHandCursor }
             TapHandler { onTapped: backend.accentName = sw.info.key }
         }
-        Text { text: sw.info.title; color: sw.on ? P.text : P.muted; font.family: P.font; font.pixelSize: 13
+        Text { text: sw.info.title; color: sw.on ? backend.pal.text : backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
                font.weight: sw.on ? Font.Bold : Font.Medium; Layout.alignment: Qt.AlignHCenter }
     }
 }

@@ -1,13 +1,28 @@
-// Пустой список: заголовок и подсказка по центру.
 import QtQuick
 
 Column {
     property string title: ""
     property string sub: ""
     anchors.centerIn: parent
-    spacing: 6
-    Text { anchors.horizontalCenter: parent.horizontalCenter; text: parent.title; color: P.text
-           font.family: P.font; font.pixelSize: 18; font.weight: Font.Bold }
-    Text { anchors.horizontalCenter: parent.horizontalCenter; text: parent.sub; color: P.muted
-           font.family: P.font; font.pixelSize: 14; visible: text !== "" }
+    spacing: 8
+    width: Math.min(parent.width - 48, 420)
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        text: parent.title
+        color: backend.pal.text
+        font.family: backend.pal.font; font.pixelSize: 22; font.weight: Font.ExtraBold
+        wrapMode: Text.WordWrap
+    }
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        text: parent.sub
+        color: backend.pal.muted
+        font.family: backend.pal.font; font.pixelSize: 15
+        visible: text !== ""
+        wrapMode: Text.WordWrap
+    }
 }

@@ -6,7 +6,7 @@ Item {
     id: root
     property string icon: ""
     property string letter: "?"
-    property color tint: P.accent
+    property color tint: backend.pal.accent
     property int size: 42
     width: size; height: size
     readonly property real r: size * 0.26
@@ -21,7 +21,7 @@ Item {
             anchors.centerIn: parent
             text: root.letter
             color: "white"
-            font.family: P.font
+            font.family: backend.pal.font
             font.pixelSize: root.size * 0.42
             font.bold: true
         }

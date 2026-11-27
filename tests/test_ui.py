@@ -491,7 +491,7 @@ class Window(unittest.TestCase):
             b.themeMode = "dark"
             self.assertTrue(ctx.contextProperty("P")["dark"], "тёмная тема не дошла до QML")
             b.accentName = "ocean"
-            self.assertEqual(ctx.contextProperty("P")["accent"], "#0b8fd4")
+            self.assertEqual(ctx.contextProperty("P")["accent"], "#8FA0E0")
             b.themeMode = "light"
             self.assertFalse(ctx.contextProperty("P")["dark"])
             self.assertEqual(json.loads(storage.SETTINGS.read_text(encoding="utf-8"))["accentName"], "ocean")

@@ -1,26 +1,35 @@
-// Логотип: круг с градиентом и стрелкой «скачать» (как иконка программы).
+// Знак Ink: скруглённый квадрат и стрелка в лоток.
 import QtQuick
 
 Rectangle {
     id: logo
     property int size: 40
-    width: size; height: size; radius: size / 2
-    gradient: Gradient {
-        orientation: Gradient.Horizontal
-        GradientStop { position: 0; color: P.grad1 }
-        GradientStop { position: 1; color: P.grad2 }
-    }
+    width: size; height: size
+    radius: Math.round(size * 0.28)
+    color: backend.pal.accent
     Canvas {
+        id: canvas
         anchors.fill: parent
         onPaint: {
             const c = getContext("2d"), s = width
-            c.strokeStyle = "white"; c.lineWidth = Math.max(2, s * 0.08)
-            c.lineCap = "round"; c.lineJoin = "round"
+            c.clearRect(0, 0, s, s)
+            c.strokeStyle = "white"
+            c.lineWidth = Math.max(2, s * 0.08)
+            c.lineCap = "round"
+            c.lineJoin = "round"
             c.beginPath()
-            c.moveTo(s / 2, s * 0.27); c.lineTo(s / 2, s * 0.58)
-            c.moveTo(s / 2 - s * 0.14, s * 0.45); c.lineTo(s / 2, s * 0.59); c.lineTo(s / 2 + s * 0.14, s * 0.45)
-            c.moveTo(s * 0.32, s * 0.72); c.lineTo(s * 0.68, s * 0.72)
+            c.moveTo(s * 0.5, s * 0.22)
+            c.lineTo(s * 0.5, s * 0.55)
+            c.moveTo(s * 0.34, s * 0.42)
+            c.lineTo(s * 0.5, s * 0.58)
+            c.lineTo(s * 0.66, s * 0.42)
+            c.moveTo(s * 0.28, s * 0.70)
+            c.quadraticCurveTo(s * 0.28, s * 0.80, s * 0.38, s * 0.80)
+            c.lineTo(s * 0.62, s * 0.80)
+            c.quadraticCurveTo(s * 0.72, s * 0.80, s * 0.72, s * 0.70)
             c.stroke()
         }
+        Connections { target: logo; function onColorChanged() { canvas.requestPaint() } }
+        Component.onCompleted: requestPaint()
     }
 }

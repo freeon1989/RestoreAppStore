@@ -22,9 +22,9 @@ Item {
         onOpened: email.forceActiveFocus()
 
         Logo { size: 56; Layout.alignment: Qt.AlignHCenter }
-        Text { text: "Вход в Apple ID"; color: P.text; font.family: P.font; font.pixelSize: 22; font.weight: Font.Bold
+        Text { text: "Вход в Apple ID"; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 22; font.weight: Font.Bold
                Layout.alignment: Qt.AlignHCenter }
-        Text { textFormat: Text.PlainText; text: backend.loginNote; color: P.muted; font.family: P.font; font.pixelSize: 14
+        Text { textFormat: Text.PlainText; text: backend.loginNote; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14
                wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true }
         Field { id: email; placeholderText: "Apple ID (email)"; onAccepted: password.forceActiveFocus() }
         RowLayout {
@@ -39,7 +39,7 @@ Item {
               onClicked: backend.login(email.text, password.text) }
         Text { text: "ipatool-cpp временно хранит данные входа, включая пароль, в зашифрованной сессии. "
                      + "Сессия удаляется при выходе и закрытии программы. Код подтверждения придёт на устройства Apple."
-               color: P.muted; font.family: P.font; font.pixelSize: 13; wrapMode: Text.WordWrap
+               color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13; wrapMode: Text.WordWrap
                horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true }
     }
 
@@ -50,7 +50,7 @@ Item {
         width: 400
         closePolicy: Popup.NoAutoClose  // рабочий поток ждёт ответа: закрыть можно только кнопками
         onOpened: { code.text = ""; code.forceActiveFocus() }
-        Text { textFormat: Text.PlainText; text: backend.askPrompt; color: P.text; font.family: P.font; font.pixelSize: 15
+        Text { textFormat: Text.PlainText; text: backend.askPrompt; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15
                wrapMode: Text.WordWrap; Layout.fillWidth: true }
         Field { id: code; placeholderText: "123456"; inputMethodHints: Qt.ImhDigitsOnly
                 onAccepted: backend.answerAsk(code.text, true) }
@@ -66,7 +66,7 @@ Item {
         id: help
         title: "Что нужно для работы"
         width: 560
-        Text { id: helpText; textFormat: Text.PlainText; color: P.text; font.family: P.font; font.pixelSize: 15; wrapMode: Text.WordWrap
+        Text { id: helpText; textFormat: Text.PlainText; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; wrapMode: Text.WordWrap
                Layout.fillWidth: true; lineHeight: 1.15 }
         Btn { text: "Понятно"; lock: false; Layout.alignment: Qt.AlignRight; onClicked: help.close() }
     }
@@ -79,20 +79,19 @@ Item {
         id: support
         title: "Поддержать разработчика"
         width: 420
-        Text { text: "Restore бесплатная. Если она помогла вернуть нужное приложение, можно поблагодарить "
-                     + "разработчика через CloudTips любой суммой."
-               color: P.text; font.family: P.font; font.pixelSize: 15; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+        Text { text: backend.displayName + " можно поддержать, если программа оказалась полезной."
+               color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; wrapMode: Text.WordWrap; Layout.fillWidth: true }
         Btn { text: "Отблагодарить по СБП или картой РФ"; kind: "primary"; lock: false; implicitHeight: 44
               Layout.fillWidth: true
               onClicked: backend.openUrl(backend.supportUrl) }
-        Text { text: "или наведите камеру телефона на QR-код"; color: P.muted; font.family: P.font; font.pixelSize: 14
+        Text { text: "или наведите камеру телефона на QR-код"; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14
                Layout.alignment: Qt.AlignHCenter; Layout.topMargin: 4 }
         Image { source: backend.qrUrl; visible: backend.qrUrl !== ""; Layout.preferredWidth: 220
                 Layout.preferredHeight: 220; Layout.alignment: Qt.AlignHCenter; fillMode: Image.PreserveAspectFit
                 smooth: true; mipmap: true }
-        Text { text: "QR-код недоступен: pip install segno"; visible: backend.qrUrl === ""; color: P.warn
-               font.family: P.font; font.pixelSize: 13; Layout.alignment: Qt.AlignHCenter }
-        Text { text: backend.supportUrl; color: P.muted; font.family: P.font; font.pixelSize: 13
+        Text { text: "QR-код недоступен: pip install segno"; visible: backend.qrUrl === ""; color: backend.pal.warn
+               font.family: backend.pal.font; font.pixelSize: 13; Layout.alignment: Qt.AlignHCenter }
+        Text { text: backend.supportUrl; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
                Layout.alignment: Qt.AlignHCenter }
         Btn { id: copyBtn; text: "Скопировать ссылку"; kind: "ghost"; lock: false; implicitHeight: 32
               Layout.alignment: Qt.AlignHCenter
@@ -103,7 +102,7 @@ Item {
     Modal {
         id: noticeBox
         width: 420
-        Text { id: noticeText; textFormat: Text.PlainText; color: P.text; font.family: P.font; font.pixelSize: 15; wrapMode: Text.WordWrap
+        Text { id: noticeText; textFormat: Text.PlainText; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; wrapMode: Text.WordWrap
                Layout.fillWidth: true }
         Btn { text: "OK"; lock: false; kind: "primary"; Layout.alignment: Qt.AlignRight; onClicked: noticeBox.close() }
     }
@@ -114,15 +113,15 @@ Item {
         title: "Доступна новая версия"
         width: 520
         onClosed: if (backend.updateOpen) backend.answerUpdate("later")  // Esc или нажатие мимо окна — «Позже»
-        Text { textFormat: Text.PlainText; text: "Restore " + backend.updateVersion + " · у вас " + backend.version
-               color: P.muted; font.family: P.font; font.pixelSize: 15; Layout.fillWidth: true; Layout.topMargin: -6 }
-        Text { text: "Что нового"; visible: backend.updateNotes !== ""; color: P.text; font.family: P.font
+        Text { textFormat: Text.PlainText; text: backend.displayName + " " + backend.updateVersion + " · у вас " + backend.version
+               color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 15; Layout.fillWidth: true; Layout.topMargin: -6 }
+        Text { text: "Что нового"; visible: backend.updateNotes !== ""; color: backend.pal.text; font.family: backend.pal.font
                font.pixelSize: 16; font.weight: Font.Bold; Layout.topMargin: 4 }
         Rectangle {
             visible: backend.updateNotes !== ""
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(notes.implicitHeight + 24, 280)
-            radius: 12; color: P.rail; border.color: P.border
+            radius: 12; color: backend.pal.rail; border.color: backend.pal.border
             Flickable {
                 id: notesScroll
                 anchors.fill: parent; anchors.margins: 12
@@ -132,7 +131,7 @@ Item {
                 ScrollBar.vertical: ThinScrollBar {}
                 // текст из сети — только обычным текстом: без разметки и кликабельных ссылок
                 Text { id: notes; width: notesScroll.width - 10; textFormat: Text.PlainText; text: backend.updateNotes
-                       color: P.text; font.family: P.font; font.pixelSize: 15; wrapMode: Text.WordWrap; lineHeight: 1.15 }
+                       color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; wrapMode: Text.WordWrap; lineHeight: 1.15 }
             }
         }
         RowLayout {

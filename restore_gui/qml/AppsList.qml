@@ -17,8 +17,8 @@ Item {
         // высота по числу строк (62 — высота AppRow), а не по contentHeight: у ListView он приблизительный
         height: Math.min(parent.height, list.count * 72 + 8)
         visible: list.count > 0
-        radius: 16
-        color: P.card
+        radius: 14
+        color: backend.pal.card
 
         ListView {
             id: list

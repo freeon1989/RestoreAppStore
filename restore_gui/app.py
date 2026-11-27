@@ -69,7 +69,7 @@ def main():
     from .apple import bundled
 
     app = QApplication(sys.argv)  # QApplication (а не QGuiApplication): системные окна выбора файла
-    app.setApplicationName("Restore")
+    app.setApplicationName(getattr(__import__("restore_apps"), "DISPLAY_NAME", "RestoreAppStore"))
     tr = QTranslator(app)  # «Да»/«Нет» и «Открыть» в стандартных окнах Qt
     if tr.load(QLocale("ru_RU"), "qtbase", "_", QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
         app.installTranslator(tr)
@@ -79,7 +79,8 @@ def main():
     lock = single_instance()
     if lock is None:
         from PySide6.QtWidgets import QMessageBox
-        QMessageBox.information(None, "Restore", "Restore уже запущена — её окно открыто или ещё запускается.")
+        name = getattr(__import__("restore_apps"), "DISPLAY_NAME", "RestoreAppStore")
+        QMessageBox.information(None, name, f"{name} уже запущена — её окно открыто или ещё запускается.")
         sys.exit(0)
     engine, backend = create(app)
     if not engine.rootObjects():

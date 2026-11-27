@@ -15,12 +15,12 @@ TEMPLATE = f"""VSVersionInfo(
                     subtype=0x0, date=(0, 0)),
   kids=[
     StringFileInfo([StringTable('041904B0', [
-      StringStruct('CompanyName', 'Restore'),
-      StringStruct('FileDescription', 'Restore — возврат удалённых из App Store приложений на iPhone'),
+      StringStruct('CompanyName', 'freeon1989'),
+      StringStruct('FileDescription', 'RestoreAppStore — возврат приложений из истории Apple ID на iPhone'),
       StringStruct('FileVersion', '{version}'),
       StringStruct('InternalName', 'RestoreAppStore'),
       StringStruct('OriginalFilename', 'RestoreAppStore.exe'),
-      StringStruct('ProductName', 'Restore'),
+      StringStruct('ProductName', 'RestoreAppStore'),
       StringStruct('ProductVersion', '{version}')])]),
     VarFileInfo([VarStruct('Translation', [0x0419, 1200])])
   ]

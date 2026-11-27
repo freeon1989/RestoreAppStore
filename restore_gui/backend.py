@@ -64,6 +64,7 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
         "themeMode": "system", "accentName": "emerald", "ipaDir": "", "deleteAfterInstall": False,
         "notifyDone": True, "ipaSummary": "", "updateText": "", "updateUrl": "",
         "autoUpdate": True, "skipVersion": "", "updateOpen": False, "updateVersion": "", "updateNotes": "",
+        "paletteSerial": 0,
     }
     engineChanged, engine = qprop(str, "engine")
     pageChanged, page = qprop(str, "page")
@@ -110,16 +111,23 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
     updateOpenChanged, updateOpen = qprop(bool, "updateOpen")
     updateVersionChanged, updateVersion = qprop(str, "updateVersion")
     updateNotesChanged, updateNotes = qprop(str, "updateNotes")
+    paletteSerialChanged, paletteSerial = qprop(int, "paletteSerial")
+
 
     logAppended = Signal(str)
     noticeRequested = Signal(str, str)  # заголовок, текст
     paletteChanged = Signal()  # сменилась тема или акцент: app.py передаёт QML новую палитру P
+
+    @Property(QObject, constant=True)
+    def pal(self):
+        return self._pal
     taskFinished = Signal()  # долгая операция закончилась — окно мигнёт на панели задач, если не в фокусе
     _posted = Signal(object)
 
     def __init__(self, background=True):
         """background=False — без фоновых потоков (iPhone, иконки, уборка сессии): для тестов окна."""
         QObject.__init__(self)
+        self._pal = theme.Palette(self)
         for k, v in self.DEFAULTS.items():
             setattr(self, "_" + k, v)
         core.SESSION_PASSPHRASE = secrets.token_urlsafe(32)  # только в памяти, на диск не пишется
@@ -184,6 +192,7 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
                                          for fn in (self.watch_device,
                                                     storage.remove_stale_unpacked)])
         QTimer.singleShot(1500, lambda: self.icons.start(a["id"] for a in self.catalog.apps))
+        QTimer.singleShot(UPDATE_DELAY_MS, self.auto_check_updates)
 
     def task_wipe_old(self):
         if self.wipe_session():
@@ -199,6 +208,7 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
     categories = Property("QVariantList", lambda self: ["Все"] + self.catalog.categories, constant=True)
     supportUrl = Property(str, lambda self: SUPPORT_URL, constant=True)
     version = Property(str, lambda self: core.__version__, constant=True)
+    displayName = Property(str, lambda self: getattr(core, "DISPLAY_NAME", "RestoreAppStore"), constant=True)
     accents = Property("QVariantList", lambda self: self.accent_list(), constant=True)
     repoUrl = Property(str, lambda self: REPO_URL, constant=True)
     defaultIpaDir = Property(str, lambda self: str(self.default_out), constant=True)
@@ -581,7 +591,7 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
             "истории покупок этого аккаунта.\n\n"
             "4. Самый первый вход на компьютере может занять до 10–15 минут: ipatool скачивает служебные "
             "файлы Apple.\n\n"
-            "5. Если вход или скачивание не работает — «Проверить связь с Apple» в меню «⋯» вверху справа. "
+            "5. Если вход или скачивание не работает — «Проверить связь с Apple» в меню боковой панели. "
             "Частые причины: DNS «для обхода блокировок», антивирус с проверкой HTTPS, записи в файле hosts.\n\n"
             f"Скачанные .ipa хранятся в папке {core.OUT_DIR} и повторно не скачиваются.\n\n"
             f"Версия {core.__version__}. Компоненты: " + self.tool_status())

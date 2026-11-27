@@ -1,4 +1,4 @@
-// Панель приложения (выезжает справа): проверки, копии под другими названиями, выбор версии, скачивание.
+// Панель приложения Ink (выезжает справа): проверки, копии, версии, скачивание.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -10,10 +10,10 @@ Drawer {
     height: parent.height
     modal: true
     dragMargin: 0  // открывается только по нажатию на приложение
-    Overlay.modal: Rectangle { color: P.shade }
+    Overlay.modal: Rectangle { color: backend.pal.shade }
     background: Rectangle {
-        color: P.bg
-        Rectangle { width: 1; height: parent.height; color: P.border }
+        color: backend.pal.card
+        Rectangle { width: 1; height: parent.height; color: backend.pal.border }
     }
     onClosed: if (backend.detailOpen) backend.closeDetail()
 
@@ -23,7 +23,7 @@ Drawer {
     }
 
     function kindColor(kind) {
-        return kind === "ok" ? P.ok : kind === "warn" ? P.warn : kind === "muted" ? P.muted : P.text
+        return kind === "ok" ? backend.pal.ok : kind === "warn" ? backend.pal.warn : kind === "muted" ? backend.pal.muted : backend.pal.text
     }
 
     ColumnLayout {
@@ -36,14 +36,14 @@ Drawer {
             Layout.fillWidth: true
             spacing: 14
             AppIcon { size: 60; icon: backend.detailApp.icon || ""; letter: backend.detailApp.letter || "?"
-                      tint: backend.detailApp.tint || P.accent }
+                      tint: backend.detailApp.tint || backend.pal.accent }
             ColumnLayout {
                 Layout.fillWidth: true; spacing: 2
-                Text { textFormat: Text.PlainText; text: backend.detailApp.name || ""; color: P.text; font.family: P.font; font.pixelSize: 19
+                Text { textFormat: Text.PlainText; text: backend.detailApp.name || ""; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 19
                        font.weight: Font.Bold; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 Text {
                     text: "App ID " + (backend.detailApp.id || "")
-                    color: idHover.hovered ? P.text : P.muted; font.family: P.font; font.pixelSize: 13
+                    color: idHover.hovered ? backend.pal.text : backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
                     HoverHandler { id: idHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: backend.copyText(String(backend.detailApp.id)) }
                     ToolTip.visible: idHover.hovered; ToolTip.text: "Скопировать"
@@ -69,7 +69,7 @@ Drawer {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: checksCol.implicitHeight + 24
-                    radius: 14; color: P.card
+                    radius: 14; color: backend.pal.card
                     ColumnLayout {
                         id: checksCol
                         anchors.fill: parent; anchors.margins: 12; anchors.leftMargin: 16
@@ -81,10 +81,10 @@ Drawer {
                                 readonly property var check: backend.detailChecks[modelData[0]] || ({})
                                 Layout.fillWidth: true
                                 spacing: 10
-                                Text { text: modelData[1]; color: P.muted; font.family: P.font; font.pixelSize: 14
+                                Text { text: modelData[1]; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14
                                        Layout.preferredWidth: 80 }
                                 Text { textFormat: Text.PlainText; text: check.text || ""; color: panel.kindColor(check.kind)
-                                       font.family: P.font; font.pixelSize: 14; font.weight: Font.Bold
+                                       font.family: backend.pal.font; font.pixelSize: 14; font.weight: Font.Bold
                                        wrapMode: Text.WordWrap; Layout.fillWidth: true }
                             }
                         }
@@ -92,13 +92,13 @@ Drawer {
                 }
 
                 // ---------- версии ----------
-                Text { textFormat: Text.PlainText; text: backend.versionHead; color: P.muted; font.family: P.font; font.pixelSize: 14
+                Text { textFormat: Text.PlainText; text: backend.versionHead; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14
                        font.weight: Font.Bold; Layout.topMargin: 4 }
 
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: versionsCol.implicitHeight + 20
-                    radius: 14; color: P.card
+                    radius: 14; color: backend.pal.card
                     ColumnLayout {
                         id: versionsCol
                         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
@@ -110,7 +110,7 @@ Drawer {
                             Layout.margins: 14
                             spacing: 10
                             BusyIndicator { running: parent.visible; implicitWidth: 24; implicitHeight: 24 }
-                            Text { text: "Проверяю…"; color: P.muted; font.family: P.font; font.pixelSize: 14 }
+                            Text { text: "Проверяю…"; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14 }
                         }
 
                         ColumnLayout {  // проверка не прошла
@@ -119,18 +119,18 @@ Drawer {
                             spacing: 8
                             Text { text: "Не удалось получить версии — проверка не прошла. Это ошибка, а не «нет в истории»: "
                                          + "приложение может быть в ваших покупках."
-                                   color: P.warn; font.family: P.font; font.pixelSize: 14; font.weight: Font.Bold
+                                   color: backend.pal.warn; font.family: backend.pal.font; font.pixelSize: 14; font.weight: Font.Bold
                                    wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                            Text { textFormat: Text.PlainText; text: backend.detailErr; color: P.text; font.family: P.font; font.pixelSize: 14
+                            Text { textFormat: Text.PlainText; text: backend.detailErr; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
                                    wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                            Text { text: "Ответ Apple (ipatool)"; color: P.muted; font.family: P.font; font.pixelSize: 12
+                            Text { text: "Ответ Apple (ipatool)"; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12
                                    font.weight: Font.Bold }
                             TextArea {
                                 Layout.fillWidth: true
                                 textFormat: TextEdit.PlainText; text: backend.detailAnswer
                                 readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
-                                color: P.text; font.family: P.mono; font.pixelSize: 13
-                                background: Rectangle { radius: 8; color: P.field }
+                                color: backend.pal.text; font.family: backend.pal.mono; font.pixelSize: 13
+                                background: Rectangle { radius: 8; color: backend.pal.field }
                             }
                             Btn { text: "Повторить проверку"; lock: false; implicitHeight: 34; onClicked: backend.detailRecheck() }
                         }
@@ -139,7 +139,7 @@ Drawer {
                             visible: backend.versionMode === "none"
                             Layout.margins: 14
                             text: "Выбор версии недоступен: приложения нет в истории этого Apple ID."
-                            color: P.muted; font.family: P.font; font.pixelSize: 14; wrapMode: Text.WordWrap
+                            color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14; wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
 
@@ -154,7 +154,7 @@ Drawer {
                                 readonly property bool chosen: backend.selectedVersion === value
                                 Layout.fillWidth: true
                                 height: 50; radius: 10
-                                color: chosen ? P.accentSoft : (verHover.hovered ? P.cardHover : P.card)
+                                color: chosen ? backend.pal.accentSoft : (verHover.hovered ? backend.pal.cardHover : backend.pal.card)
                                 Behavior on color { ColorAnimation { duration: 120 } }
                                 HoverHandler { id: verHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: backend.selectedVersion = ver.value }
@@ -164,15 +164,15 @@ Drawer {
                                     Rectangle {
                                         width: 18; height: 18; radius: 9
                                         color: "transparent"; border.width: 2
-                                        border.color: ver.chosen ? P.accent : P.borderLight
+                                        border.color: ver.chosen ? backend.pal.accent : backend.pal.borderLight
                                         Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4
-                                                    color: P.accent; visible: ver.chosen }
+                                                    color: backend.pal.accent; visible: ver.chosen }
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true; spacing: 0
-                                        Text { textFormat: Text.PlainText; text: ver.title; color: P.text; font.family: P.font; font.pixelSize: 14
+                                        Text { textFormat: Text.PlainText; text: ver.title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
                                                font.weight: Font.Bold; Layout.fillWidth: true }
-                                        Text { textFormat: Text.PlainText; text: ver.sub; color: ver.mine ? P.ok : P.muted; font.family: P.font
+                                        Text { textFormat: Text.PlainText; text: ver.sub; color: ver.mine ? backend.pal.ok : backend.pal.muted; font.family: backend.pal.font
                                                font.pixelSize: 12; Layout.fillWidth: true }
                                     }
                                 }
@@ -193,11 +193,11 @@ Drawer {
                     visible: backend.cloneHead !== ""
                     Layout.fillWidth: true
                     spacing: 6
-                    Text { textFormat: Text.PlainText; text: backend.cloneHead; color: backend.cloneHeadOk ? P.ok : P.muted; font.family: P.font
+                    Text { textFormat: Text.PlainText; text: backend.cloneHead; color: backend.cloneHeadOk ? backend.pal.ok : backend.pal.muted; font.family: backend.pal.font
                            font.pixelSize: 14; font.weight: Font.Bold }
                     Text { text: "Это же приложение публиковали под видом других программ. Если вы ставили такую копию, "
                                  + "она в истории вашего Apple ID под своим ID — нажмите на неё, чтобы увидеть её версии."
-                           color: P.muted; font.family: P.font; font.pixelSize: 13; wrapMode: Text.WordWrap
+                           color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13; wrapMode: Text.WordWrap
                            Layout.fillWidth: true }
                     Repeater {
                         model: backend.clones
@@ -213,7 +213,7 @@ Drawer {
                             required property string statusKind
                             Layout.fillWidth: true
                             height: 52; radius: 12
-                            color: cloneHover.hovered ? P.cardHover : P.card
+                            color: cloneHover.hovered ? backend.pal.cardHover : backend.pal.card
                             Behavior on color { ColorAnimation { duration: 120 } }
                             HoverHandler { id: cloneHover; cursorShape: Qt.PointingHandCursor }
                             TapHandler { onTapped: backend.openDetail("clones", clone.index) }
@@ -223,14 +223,14 @@ Drawer {
                                 AppIcon { size: 32; icon: clone.icon; letter: clone.letter; tint: clone.tint }
                                 ColumnLayout {
                                     Layout.fillWidth: true; spacing: 0
-                                    Text { textFormat: Text.PlainText; text: clone.title; color: P.text; font.family: P.font; font.pixelSize: 14
+                                    Text { textFormat: Text.PlainText; text: clone.title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
                                            font.weight: Font.Bold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                    Text { textFormat: Text.PlainText; text: clone.sub; color: P.muted; font.family: P.font; font.pixelSize: 12
+                                    Text { textFormat: Text.PlainText; text: clone.sub; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12
                                            elide: Text.ElideRight; Layout.fillWidth: true }
                                 }
                                 Text { textFormat: Text.PlainText; text: clone.status; color: panel.kindColor(clone.statusKind)
-                                       font.family: P.font; font.pixelSize: 13 }
-                                Text { text: "›"; color: P.muted; font.pixelSize: 18 }
+                                       font.family: backend.pal.font; font.pixelSize: 13 }
+                                Text { text: "›"; color: backend.pal.muted; font.pixelSize: 18 }
                             }
                         }
                     }
@@ -243,7 +243,7 @@ Drawer {
             text: "Apple не хранит и не отдаёт список версий, которые вы скачивали раньше. Здесь только версии, "
                   + "доступные именно вашему Apple ID, и только если приложение есть в его истории. Отметка "
                   + "«скачано через программу» — версии, которые вы уже брали здесь."
-            color: P.muted; font.family: P.font; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
+            color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
         RowLayout {
             Layout.fillWidth: true

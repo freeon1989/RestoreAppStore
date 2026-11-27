@@ -1,14 +1,13 @@
-// «Мои удалённые»: приложения из истории Apple ID, которых больше нет в App Store.
 import QtQuick
 import QtQuick.Layouts
 
 ColumnLayout {
-    spacing: 10
+    spacing: 12
 
     PageTitle { title: "Мои удалённые"; sub: "Приложения, которые были у вашего Apple ID и пропали из App Store." }
 
     RowLayout {
-        Layout.topMargin: 6
+        Layout.topMargin: 4
         spacing: 8
         Btn { text: "Проверить по каталогу"; kind: "primary"; onClicked: backend.findMine() }
         Btn { text: "Загрузить список покупок"; onClicked: backend.loadPurchases() }

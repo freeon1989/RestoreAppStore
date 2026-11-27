@@ -6,12 +6,12 @@ import QtQuick.Layouts
 Switch {
     id: s
     Layout.fillWidth: true
-    font.family: P.font; font.pixelSize: 15
+    font.family: backend.pal.font; font.pixelSize: 15
     indicator: Rectangle {
         x: s.leftPadding; anchors.verticalCenter: parent.verticalCenter
         width: 40; height: 22; radius: 11
-        color: s.checked ? P.accent : P.second
-        border.color: s.checked ? P.accent : P.borderLight
+        color: s.checked ? backend.pal.accent : backend.pal.second
+        border.color: s.checked ? backend.pal.accent : backend.pal.borderLight
         Behavior on color { ColorAnimation { duration: 150 } }
         Rectangle {
             width: 16; height: 16; radius: 8; color: "white"
@@ -21,7 +21,7 @@ Switch {
         }
     }
     contentItem: Text {
-        text: s.text; font: s.font; color: P.text; wrapMode: Text.WordWrap
+        text: s.text; font: s.font; color: backend.pal.text; wrapMode: Text.WordWrap
         leftPadding: s.indicator.width + 12; verticalAlignment: Text.AlignVCenter
     }
 }

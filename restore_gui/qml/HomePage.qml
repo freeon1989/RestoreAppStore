@@ -1,4 +1,3 @@
-// Главная: путь из трёх шагов (Apple ID → iPhone → найти свои приложения) и популярное сеткой иконок.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -6,22 +5,27 @@ import QtQuick.Layouts
 ColumnLayout {
     id: home
     signal helpRequested()
-    spacing: 14
+    spacing: 16
 
     ColumnLayout {
-        spacing: 2
-        Text { text: backend.greeting; color: P.accentText; font.family: P.font; font.pixelSize: 15
-               font.weight: Font.DemiBold }
-        Text { text: "Вернём удалённые приложения"; color: P.text; font.family: P.font; font.pixelSize: 28
-               font.weight: Font.ExtraBold }
-        Text { text: "Restore находит в истории вашего Apple ID приложения, которые пропали из App Store, и ставит их обратно на iPhone."
-               color: P.muted; font.family: P.font; font.pixelSize: 15; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+        spacing: 8
+        Text {
+            text: backend.greeting
+            color: backend.pal.accentText
+            font.family: backend.pal.font; font.pixelSize: 12; font.weight: Font.DemiBold
+            font.letterSpacing: 1.2
+        }
+        Text { text: "Снова на iPhone"; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 34; font.weight: Font.ExtraBold }
+        Text {
+            text: "Найдите в истории покупок своего Apple ID приложения, которых уже нет в App Store, и поставьте их обратно."
+            color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 15; wrapMode: Text.WordWrap
+            Layout.fillWidth: true; lineHeight: 1.3
+        }
     }
 
-    // ---------- три шага ----------
     RowLayout {
         Layout.fillWidth: true
-        Layout.topMargin: 6
+        Layout.topMargin: 8
         spacing: 12
 
         Step {
@@ -43,19 +47,19 @@ ColumnLayout {
             number: 3
             main: true
             title: "Найти мои приложения"
-            sub: "проверим историю Apple ID →"
+            sub: "проверим историю Apple ID"
             onClicked: backend.findMine()
         }
     }
 
-    // ---------- популярное ----------
     RowLayout {
-        Layout.topMargin: 12
-        Text { text: "Популярное"; color: P.text; font.family: P.font; font.pixelSize: 19; font.weight: Font.Bold }
+        Layout.topMargin: 16
+        Text { text: "Популярное"; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 20; font.weight: Font.Bold }
         Item { Layout.fillWidth: true }
         Text {
-            text: "Весь каталог →"; color: allHover.hovered ? P.accent : P.accentText; font.family: P.font
-            font.pixelSize: 15; font.weight: Font.DemiBold
+            text: "Весь каталог"
+            color: allHover.hovered ? backend.pal.accent : backend.pal.accentText
+            font.family: backend.pal.font; font.pixelSize: 14; font.weight: Font.DemiBold
             HoverHandler { id: allHover; cursorShape: Qt.PointingHandCursor }
             TapHandler { onTapped: backend.showPage("apps") }
         }
@@ -87,7 +91,6 @@ ColumnLayout {
         }
     }
 
-    // шаг пути: номер или ✓, заголовок и пояснение; main — главный шаг, залит акцентом
     component Step: Rectangle {
         id: step
         property int number: 1
@@ -99,37 +102,34 @@ ColumnLayout {
         signal clicked()
         Layout.fillWidth: true
         Layout.preferredWidth: 1
-        implicitHeight: 112
-        radius: 18
-        color: main ? (stepHover.hovered ? P.accentHover : P.accent) : (stepHover.hovered ? P.cardHover : P.card)
-        border.color: main ? "transparent" : (done ? P.okDim : P.border)
+        implicitHeight: 118
+        radius: 16
+        color: main ? (stepHover.hovered ? backend.pal.accentHover : backend.pal.accent) : (stepHover.hovered ? backend.pal.cardHover : backend.pal.card)
+        border.color: main ? "transparent" : (done ? backend.pal.okDim : backend.pal.border)
         scale: stepTap.pressed ? 0.98 : 1
         Behavior on color { ColorAnimation { duration: 130 } }
         Behavior on scale { NumberAnimation { duration: 90 } }
         HoverHandler { id: stepHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { id: stepTap; onTapped: step.clicked() }
 
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent; anchors.margins: 16
-            spacing: 14
+            spacing: 8
             Rectangle {
-                width: 38; height: 38; radius: 19
-                color: step.main ? Qt.rgba(1, 1, 1, 0.2) : step.done ? P.okBg : step.warn ? P.warnDim : P.second
+                width: 28; height: 28; radius: 8
+                color: step.main ? Qt.rgba(1, 1, 1, 0.2) : step.done ? backend.pal.okBg : step.warn ? backend.pal.warnDim : backend.pal.second
                 Text {
                     anchors.centerIn: parent
                     text: step.done ? "✓" : step.number
-                    color: step.main ? "white" : step.done ? P.ok : step.warn ? P.warn : P.muted
-                    font.family: P.font; font.pixelSize: 18; font.weight: Font.ExtraBold
+                    color: step.main ? "white" : step.done ? backend.pal.ok : step.warn ? backend.pal.warn : backend.pal.muted
+                    font.family: backend.pal.font; font.pixelSize: 14; font.weight: Font.ExtraBold
                 }
             }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-                Text { text: step.title; color: step.main ? "white" : P.text; font.family: P.font; font.pixelSize: 17
-                       font.weight: Font.Bold; elide: Text.ElideRight; Layout.fillWidth: true }
-                Text { textFormat: Text.PlainText; text: step.sub; color: step.main ? Qt.rgba(1, 1, 1, 0.85) : step.warn ? P.warn : P.muted
-                       font.family: P.font; font.pixelSize: 14; wrapMode: Text.WordWrap; maximumLineCount: 3; elide: Text.ElideRight; Layout.fillWidth: true }
-            }
+            Text { text: step.title; color: step.main ? "white" : backend.pal.text; font.family: backend.pal.font; font.pixelSize: 16
+                   font.weight: Font.Bold; elide: Text.ElideRight; Layout.fillWidth: true }
+            Text { textFormat: Text.PlainText; text: step.sub; color: step.main ? Qt.rgba(1, 1, 1, 0.88) : step.warn ? backend.pal.warn : backend.pal.muted
+                   font.family: backend.pal.font; font.pixelSize: 13; wrapMode: Text.WordWrap; maximumLineCount: 3
+                   elide: Text.ElideRight; Layout.fillWidth: true }
         }
     }
 }

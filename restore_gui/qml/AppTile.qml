@@ -16,9 +16,9 @@ Rectangle {
     required property bool selected
     required property string copies
 
-    radius: 18
-    color: selected ? P.accentSoft : (hover.hovered ? P.card : P.bg)
-    border.color: selected ? P.accentDim : (hover.hovered ? P.border : P.bg)
+    radius: 14
+    color: selected ? backend.pal.accentSoft : (hover.hovered ? backend.pal.card : backend.pal.bg)
+    border.color: selected ? backend.pal.accentDim : (hover.hovered ? backend.pal.border : backend.pal.bg)
     Behavior on color { ColorAnimation { duration: 120 } }
 
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
@@ -44,15 +44,15 @@ Rectangle {
                 onToggled: backend.toggleSelected("popular", tile.index)
             }
         }
-        Text { textFormat: Text.PlainText; text: tile.title; color: P.text; font.family: P.font; font.pixelSize: 15; font.weight: Font.Bold
+        Text { textFormat: Text.PlainText; text: tile.title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; font.weight: Font.Bold
                horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; Layout.fillWidth: true
                Layout.topMargin: 4 }
         Text {
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
-            font.family: P.font; font.pixelSize: 13; font.weight: Font.Medium
-            color: tile.statusKind === "ok" ? P.ok : P.muted
+            font.family: backend.pal.font; font.pixelSize: 13; font.weight: Font.Medium
+            color: tile.statusKind === "ok" ? backend.pal.ok : backend.pal.muted
             textFormat: Text.PlainText
             text: tile.status !== "" ? tile.status : (tile.copies !== "" ? tile.copies : "открыть")
         }

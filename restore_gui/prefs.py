@@ -16,7 +16,7 @@ from . import storage, theme
 from .catalog import plural
 from .device import vtuple
 
-REPO = "ToXiTy13/RestoreIPA"
+REPO = "freeon1989/RestoreAppStore"
 REPO_URL = f"https://github.com/{REPO}"
 NOTIFY_AFTER_S = 5  # мигать значком на панели задач, только если операция шла дольше
 UPDATE_DELAY_MS = 3000  # автопроверка обновлений — чуть позже запуска, когда окно уже нарисовано
@@ -85,7 +85,7 @@ class PrefsMixin:
         for key in ("themeMode", "accentName"):
             getattr(self, key + "Changed").connect(self.apply_theme)
         hints = QGuiApplication.styleHints()
-        hints.colorSchemeChanged.connect(lambda _scheme: self._themeMode == "system" and self.paletteChanged.emit())
+        hints.colorSchemeChanged.connect(lambda _scheme: self._themeMode == "system" and self.apply_theme())
         self.apply_theme()
 
     def save_prefs(self):
@@ -107,7 +107,10 @@ class PrefsMixin:
         # заголовок окна Windows (светлый/тёмный) Qt рисует по схеме приложения; Unknown — как в системе
         QGuiApplication.styleHints().setColorScheme(
             {"light": Qt.ColorScheme.Light, "dark": Qt.ColorScheme.Dark}.get(self._themeMode, Qt.ColorScheme.Unknown))
+        if hasattr(self, "_pal"):
+            self._pal.set(self.current_palette())
         self.paletteChanged.emit()
+        self.paletteSerial += 1
 
     def accent_list(self):
         return [{"key": k, "title": t, "color": light["accent"], "grad1": light["grad1"], "grad2": light["grad2"]}
@@ -172,7 +175,7 @@ class PrefsMixin:
         """Последний релиз на GitHub: (версия, ссылка на релиз, «что нового») или None, если версия не новее.
         Из рабочего потока; без сети — исключение."""
         req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
-                                     headers={"User-Agent": "Restore", "Accept": "application/vnd.github+json"})
+                                     headers={"User-Agent": "RestoreAppStore", "Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=10) as r:
             rel = json.load(r)
         tag = str(rel.get("tag_name", "")).lstrip("vV")

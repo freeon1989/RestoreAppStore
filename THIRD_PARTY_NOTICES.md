@@ -57,3 +57,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## ICU (только Windows-сборка 1.3.0 и новее)
+
+В Windows-сборке рядом с Qt лежат `icu.dll`, `icuuc.dll` и `icuin.dll` из
+[FaithLife-Community/icu 72.1](https://github.com/FaithLife-Community/icu)
+(сборка с неверсионными символами, как у системной ICU в Windows 10/11).
+Это нужно, потому что PySide6 6.10+ на Windows импортирует `icuuc.dll`, но не
+кладёт его в wheel. Текст лицензии Unicode — в [licenses/LICENSE-ICU.txt](licenses/LICENSE-ICU.txt).

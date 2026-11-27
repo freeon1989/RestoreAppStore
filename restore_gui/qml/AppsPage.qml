@@ -1,10 +1,9 @@
-// «Каталог»: поиск, категории и все приложения.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
 ColumnLayout {
-    spacing: 10
+    spacing: 12
 
     PageTitle {
         title: "Каталог"
@@ -14,25 +13,25 @@ ColumnLayout {
     TextField {
         id: search
         Layout.fillWidth: true
-        Layout.topMargin: 6
+        Layout.topMargin: 4
         implicitHeight: 46
         leftPadding: 44
         placeholderText: "Например: Сбербанк, 492224193 или ссылка apps.apple.com"
-        placeholderTextColor: P.muted
-        color: P.text
-        selectionColor: P.accent
-        font.family: P.font; font.pixelSize: 16
+        placeholderTextColor: backend.pal.muted
+        color: backend.pal.text
+        selectionColor: backend.pal.accent
+        font.family: backend.pal.font; font.pixelSize: 16
         onTextChanged: debounce.restart()
         Timer { id: debounce; interval: 180; onTriggered: { backend.setQuery(search.text); list.positionViewAtBeginning() } }
         background: Rectangle {
-            radius: height / 2; color: P.card
-            border.color: search.activeFocus ? P.accent : P.border
+            radius: 10; color: backend.pal.card
+            border.color: search.activeFocus ? backend.pal.accent : backend.pal.border
             border.width: search.activeFocus ? 2 : 1
             Behavior on border.color { ColorAnimation { duration: 150 } }
-            Text { text: "⌕"; color: P.muted; font.pixelSize: 20; x: 16; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: "⌕"; color: backend.pal.muted; font.pixelSize: 18; x: 16; anchors.verticalCenter: parent.verticalCenter }
             Text {
                 visible: search.text !== ""
-                text: "✕"; color: clearHover.hovered ? P.text : P.muted; font.pixelSize: 16
+                text: "✕"; color: clearHover.hovered ? backend.pal.text : backend.pal.muted; font.pixelSize: 16
                 anchors.right: parent.right; anchors.rightMargin: 16; anchors.verticalCenter: parent.verticalCenter
                 HoverHandler { id: clearHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: search.clear() }
@@ -40,11 +39,10 @@ ColumnLayout {
         }
     }
 
-    // категории — текстовыми вкладками с подчёркиванием
     Item {
         Layout.fillWidth: true
         implicitHeight: 36
-        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: P.border }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: backend.pal.border }
         ListView {
             anchors.fill: parent
             orientation: ListView.Horizontal
@@ -59,19 +57,19 @@ ColumnLayout {
                 height: 36
                 width: catText.implicitWidth
                 Text { id: catText; anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: -2
-                       text: cat.modelData; font.family: P.font; font.pixelSize: 15
+                       text: cat.modelData; font.family: backend.pal.font; font.pixelSize: 15
                        font.weight: cat.on ? Font.Bold : Font.Medium
-                       color: cat.on ? P.text : (catHover.hovered ? P.text : P.muted) }
-                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 3; radius: 1.5
-                            color: P.accent; visible: cat.on }
+                       color: cat.on ? backend.pal.text : (catHover.hovered ? backend.pal.text : backend.pal.muted) }
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 2; radius: 1
+                            color: backend.pal.accent; visible: cat.on }
                 HoverHandler { id: catHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: { backend.setCategory(cat.modelData); list.positionViewAtBeginning() } }
             }
         }
     }
 
-    Text { text: "Найдено: " + list.count; color: P.muted; font.family: P.font; font.pixelSize: 14
-           Layout.topMargin: 4 }
+    Text { text: "Найдено: " + list.count; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
+           Layout.topMargin: 2 }
 
     AppsList {
         id: list

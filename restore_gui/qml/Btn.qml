@@ -1,5 +1,4 @@
-// Кнопка программы — «пилюля». kind: primary (главное действие), second, ghost (как ссылка), danger.
-// lock — блокировать, пока идёт долгая операция (backend.busy).
+// Кнопка Ink. kind: primary, second, ghost, danger. lock — блокировать при backend.busy.
 import QtQuick
 import QtQuick.Controls
 
@@ -7,12 +6,12 @@ Button {
     id: b
     property string kind: "second"
     property bool lock: true
-    property real radius: height / 2
+    property real radius: 10
     enabled: !(lock && backend.busy)
     implicitHeight: 40
-    leftPadding: 20; rightPadding: 20
+    leftPadding: 16; rightPadding: 16
     hoverEnabled: true
-    font.family: P.font
+    font.family: backend.pal.font
     font.pixelSize: 15
     font.weight: kind === "primary" ? Font.Bold : Font.DemiBold
     scale: down ? 0.97 : 1
@@ -24,18 +23,16 @@ Button {
         elide: Text.ElideRight
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        color: !b.enabled ? P.disabled
+        color: !b.enabled ? backend.pal.disabled
              : b.kind === "primary" ? "white"
-             : b.kind === "ghost" ? P.accentText
-             : b.kind === "danger" ? P.danger : P.text
+             : b.kind === "ghost" ? backend.pal.accentText
+             : b.kind === "danger" ? backend.pal.danger : backend.pal.text
     }
     background: Rectangle {
-        // цвет наведения у ghost/danger; без наведения — он же с нулевой прозрачностью: при переходе
-        // из "transparent" (прозрачный чёрный) кнопка на мгновение темнеет
-        readonly property color soft: b.kind === "danger" ? P.dangerBg : P.accentSoft
+        readonly property color soft: b.kind === "danger" ? backend.pal.dangerBg : backend.pal.accentSoft
         radius: b.radius
-        color: b.kind === "primary" ? (!b.enabled ? P.second : b.hovered ? P.accentHover : P.accent)
-             : b.kind === "second" ? (b.hovered ? P.secondHover : P.second)
+        color: b.kind === "primary" ? (!b.enabled ? backend.pal.second : b.hovered ? backend.pal.accentHover : backend.pal.accent)
+             : b.kind === "second" ? (b.hovered ? backend.pal.secondHover : backend.pal.second)
              : b.hovered ? soft : Qt.rgba(soft.r, soft.g, soft.b, 0)
         Behavior on color { ColorAnimation { duration: 120 } }
     }

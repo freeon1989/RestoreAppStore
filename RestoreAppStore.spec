@@ -6,6 +6,7 @@
 #   0 — dist\RestoreAppStore.exe одним файлом (портативный): при каждом запуске распаковывается во временную папку;
 #   1 — dist\RestoreAppStore\ папкой (для установщика): распаковывать нечего, запускается в разы быстрее.
 import os
+from pathlib import Path
 import re
 import sys
 
@@ -23,6 +24,18 @@ if MAC:
 else:
     binaries = [(f"{RES}/ipatool-cpp.exe", ".")]
     datas += [(f"{RES}/IPATOOL_CPP_LICENSE.txt", "."), (f"{RES}/IPA_DOWNLOADER_LICENSE.txt", ".")]
+# PySide6 6.10+ (включая 6.12) на Windows жёстко импортирует icuuc.dll,
+# но wheel его не кладёт. На «живой» Windows 10/11 файл есть в System32;
+# в сборке кладём рядом с Qt6Core копию ICU 72.1 (Unicode License, неверсионные символы).
+icu_dir = Path(RES) / "icu"
+for name in ("icu.dll", "icuuc.dll", "icuin.dll"):
+    f = icu_dir / name
+    if not f.is_file():
+        raise SystemExit(f"нет {f}: скачайте ICU (см. scripts/bundle_icu.sh) в {icu_dir}")
+    binaries.append((str(f), "PySide6"))
+icu_lic = Path("licenses/LICENSE-ICU.txt")
+if icu_lic.is_file():
+    datas.append((str(icu_lic), "."))
 # segno — QR-код в «Поддержать», если нет картинки; модули Qt ниже нужны QML и импортируются не из Python
 hiddenimports = ["restore_apps", "segno", "PySide6.QtQuick", "PySide6.QtQuickControls2"]
 # pymobiledevice3 встроен для режима `exe --pmd` (установка IPA); подмодули он грузит динамически.
