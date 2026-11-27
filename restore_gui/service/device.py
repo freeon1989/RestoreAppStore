@@ -118,21 +118,33 @@ def status(*, autopair: bool = False, pair_timeout: float = 45) -> dict:
     return {"state": "none", "text": NONE_TEXT, "udid": "", "apps": []}
 
 
-def install_ipa(path: Path) -> None:
+def install_ipa(path: Path, on_progress=None) -> None:
     path = Path(path)
     if not path.is_file():
         raise RuntimeError(f"Файл не найден: {path}")
     try:
-        _run_async(_install_pmd_async(path))
+        _run_async(_install_pmd_async(path, on_progress=on_progress))
         return
     except ImportError:
         pass
+    except Exception as exc:  # noqa: BLE001
+        from .install_errors import InstallError, from_exception
+        if isinstance(exc, InstallError):
+            raise
+        raw = str(exc)
+        paths.write_app_log(f"установка: {raw}")
+        raise from_exception(exc) from exc
     exe = shutil.which("ideviceinstaller")
     if not exe:
         raise RuntimeError("Нет средства установки на устройство (pymobiledevice3 или ideviceinstaller)")
+    if on_progress:
+        on_progress({"phase": "install", "pct": 0, "stage": "установка", "status": "Installing"})
     proc = subprocess.run([exe, "-i", str(path)], capture_output=True, text=True, timeout=600)
     if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout or "ideviceinstaller не смог установить IPA").strip()[:400])
+        raw = (proc.stderr or proc.stdout or "ideviceinstaller не смог установить IPA").strip()
+        paths.write_app_log(f"установка: {raw}")
+        from .install_errors import from_exception
+        raise from_exception(RuntimeError(raw))
 
 
 def write_diagnostics() -> int:
@@ -336,9 +348,10 @@ async def _installed_pmd(client) -> list[dict]:
     return out
 
 
-async def _install_pmd_async(path: Path) -> None:
+async def _install_pmd_async(path: Path, on_progress=None) -> None:
     from pymobiledevice3.lockdown import create_using_usbmux
     from pymobiledevice3.services.installation_proxy import InstallationProxyService
+    from .install_errors import InstallError, from_exception
 
     cache = our_pair_dir()
     try:
@@ -348,12 +361,84 @@ async def _install_pmd_async(path: Path) -> None:
     client = await create_using_usbmux(autopair=True, pair_timeout=45, pairing_records_cache_folder=cache)
     try:
         async with InstallationProxyService(lockdown=client) as svc:
-            await svc.install_from_local(str(path))
+            await _install_with_progress(svc, path, on_progress)
+    except InstallError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raw = str(exc)
+        paths.write_app_log(f"установка: {raw}")
+        raise from_exception(exc) from exc
     finally:
         try:
             await client.close()
         except Exception:
             pass
+
+
+async def _install_with_progress(svc, path: Path, on_progress=None) -> None:
+    """Загрузка IPA через AFC с прогрессом, затем installation_proxy со статусами."""
+    import uuid
+    from pymobiledevice3.services.afc import AfcService
+    from pymobiledevice3.services.installation_proxy import TEMP_REMOTE_BASEDIR
+    from .progress import map_install_stage, STAGE_UPLOAD
+
+    def report(phase, pct, status=""):
+        if not on_progress:
+            return
+        stage = map_install_stage(status, phase)
+        on_progress({"phase": phase, "pct": pct, "stage": stage or STAGE_UPLOAD, "status": status or ""})
+
+    size = max(1, path.stat().st_size)
+    fname = f"{TEMP_REMOTE_BASEDIR}/{uuid.uuid4()}.ipa"
+    async with AfcService(svc.lockdown) as afc:
+        try:
+            await afc.makedirs(TEMP_REMOTE_BASEDIR)
+            handle = await afc.fopen(fname, "w")
+            sent = 0
+            report("upload", 0, "Uploading")
+            try:
+                with path.open("rb") as fh:
+                    while True:
+                        chunk = fh.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        await afc.fwrite(handle, chunk)
+                        sent += len(chunk)
+                        report("upload", min(99.0, 100.0 * sent / size), "Uploading")
+            finally:
+                await afc.fclose(handle)
+            report("upload", 100, "Uploading")
+
+            await svc.service.send_plist({
+                "Command": "Install",
+                "ClientOptions": {},
+                "PackagePath": fname,
+            })
+            while True:
+                response = await svc.service.recv_plist()
+                if not response:
+                    break
+                error = response.get("Error")
+                if error:
+                    desc = response.get("ErrorDescription") or ""
+                    raw = f"{error}: {desc}".strip()
+                    paths.write_app_log(f"установка: {raw}")
+                    from .install_errors import from_exception
+                    raise from_exception(RuntimeError(raw))
+                status = str(response.get("Status") or "")
+                completion = response.get("PercentComplete")
+                pct = float(completion) if completion is not None else None
+                report("install", pct if pct is not None else 0, status)
+                if status == "Complete":
+                    report("install", 100, "Complete")
+                    return
+            from .install_errors import InstallError
+            raise InstallError("Не удалось установить приложение на устройство. Подробности записаны в журнал.", raw="no Complete status")
+        finally:
+            try:
+                await afc.rm_single(fname, force=True)
+            except Exception:
+                pass
 
 
 def _status_libimobile() -> dict:

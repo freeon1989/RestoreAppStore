@@ -86,6 +86,18 @@ def tool_home() -> Path:
     return path
 
 
+def account_home(account_id: str | None = None) -> Path:
+    """Отдельный HOME для сессии ipatool-cpp. default/пусто — прежний tool-home."""
+    if not account_id or account_id == "default":
+        return tool_home()
+    import re
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(account_id))[:64] or "account"
+    path = data_dir() / "accounts" / safe / "home"
+    (path / "AppData" / "Local").mkdir(parents=True, exist_ok=True)
+    (path / "AppData" / "Roaming").mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def find_ipatool() -> Path | None:
     names = ("ipatool-cpp.exe", "ipatool-cpp", "ipatool.exe", "ipatool")
     for name in names:

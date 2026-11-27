@@ -147,6 +147,30 @@ def main():
     settle(app)
     save(win, "apps.png")
 
+    # Полосы скачивания и установки (демо-значения, без сети)
+    b.showPage("home")
+    b.jobActive = True
+    b.jobOverall = "1 из 2 · Resident Cabinet"
+    b.downloadPct = 45
+    b.downloadText = "45 % · 12,4 / 40,0 МБ · 3,2 МБ/с · ещё 8 с"
+    b.installPct = 30
+    b.installText = "30 % · распаковка"
+    b.jobCount = 2
+    b._jobList.replace([
+        {"title": "Resident Cabinet", "phase": "распаковка", "downloadText": "100 %", "installText": "30 % · распаковка",
+         "downloadPct": 100, "installPct": 30, "state": "install", "appId": "1"},
+        {"title": "ChatGPT", "phase": "очередь", "downloadText": "", "installText": "",
+         "downloadPct": 0, "installPct": 0, "state": "queued", "appId": "2"},
+    ])
+    settle(app, 0.8)
+    save(win, "progress.png")
+    b.jobActive = False
+    b.jobCount = 0
+    b._jobList.replace([])
+    b.downloadText = ""
+    b.installText = ""
+    b.jobOverall = ""
+
     b.showPage("home")
     settle(app, 0.5)
     b.openDetail("popular", 0)
@@ -177,6 +201,10 @@ def main():
     settle(app, 1.0)
     print("settings visible", sw.property("visible"), "w", sw.property("width"), "h", sw.property("height"), "x", sw.property("x"), "y", sw.property("y"), "opacity", sw.property("opacity"))
     save(win, "settings.png", overlay_item=sw)
+    # Витрина и аккаунты — раздел «App Store»
+    sw.setProperty("section", 2)
+    settle(app, 0.8)
+    save(win, "storefront.png", overlay_item=sw)
     QMetaObject.invokeMethod(sw, "close", Qt.DirectConnection)
     sw.setProperty("visible", False)
     settle(app)

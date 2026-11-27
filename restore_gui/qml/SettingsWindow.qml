@@ -223,11 +223,17 @@ Popup {
                         Heading { title: "App Store"; sub: "Как программа проверяет наличие приложений и скачивает их." }
                         Group {
                             Row2 {
-                                title: "Страна магазина"
-                                sub: "Код страны для проверки, есть ли приложение в App Store (ru, us, kz …)"
-                                Field { Layout.fillWidth: false; implicitWidth: 64; implicitHeight: 38
-                                        horizontalAlignment: Text.AlignHCenter
-                                        text: backend.country; maximumLength: 2; onTextEdited: backend.country = text }
+                                title: "Витрина каталога"
+                                sub: "Страна App Store для поиска и каталога. Скачивание идёт из витрины текущего Apple ID."
+                                ComboBox {
+                                    Layout.fillWidth: false
+                                    implicitWidth: 200; implicitHeight: 38
+                                    model: backend.storefronts
+                                    textRole: "title"
+                                    currentIndex: backend.storefrontIndex
+                                    onActivated: backend.setStorefrontIndex(currentIndex)
+                                    font.family: backend.pal.font; font.pixelSize: 13
+                                }
                             }
                             Row2 {
                                 title: "Только удалённые в «Моих удалённых»"
@@ -240,6 +246,44 @@ Popup {
                                 sub: "Если приложение ещё продаётся в App Store, бесплатно «купить» его на ваш Apple ID перед скачиванием"
                                 Toggle { Layout.fillWidth: false; checked: backend.purchase; onToggled: backend.purchase = checked }
                             }
+                        }
+                        ColumnLayout {
+                            spacing: 8
+                            Layout.fillWidth: true
+                            Text {
+                                text: "Аккаунты Apple ID"
+                                color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; font.weight: Font.Bold
+                            }
+                            Text {
+                                text: "Пароли на диск не сохраняются. У каждого аккаунта своя сессия и витрина."
+                                color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12
+                                wrapMode: Text.WordWrap; Layout.fillWidth: true
+                            }
+                            Repeater {
+                                model: backend.accounts
+                                delegate: RowLayout {
+                                    required property string id
+                                    required property string email
+                                    required property string storefrontName
+                                    required property bool current
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 0
+                                        Text { textFormat: Text.PlainText; text: email + (current ? " · текущий" : "")
+                                               color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 13; font.weight: Font.DemiBold
+                                               elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                        Text { textFormat: Text.PlainText; text: storefrontName !== "" ? "Витрина: " + storefrontName : "Витрина неизвестна"
+                                               color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12 }
+                                    }
+                                    Btn { visible: !current; text: "Переключить"; kind: "second"; lock: false; implicitHeight: 32
+                                          onClicked: backend.switchAccount(id) }
+                                    Btn { text: "Удалить"; kind: "danger"; lock: false; implicitHeight: 32
+                                          onClicked: backend.removeAccount(id) }
+                                }
+                            }
+                            Btn { text: "Добавить Apple ID"; kind: "primary"; lock: false; implicitHeight: 36
+                                  onClicked: backend.addAccount() }
                         }
                     }
 

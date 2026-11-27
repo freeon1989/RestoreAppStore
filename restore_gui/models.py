@@ -31,6 +31,33 @@ VERSION_ROLES = {
     Qt.UserRole + 2: "title",
     Qt.UserRole + 3: "sub",
     Qt.UserRole + 4: "mine",
+    Qt.UserRole + 5: "legacy",
+    Qt.UserRole + 6: "note",
+}
+
+STOREFRONT_ROLES = {
+    Qt.UserRole + 1: "value",
+    Qt.UserRole + 2: "title",
+}
+
+ACCOUNT_ROLES = {
+    Qt.UserRole + 1: "id",
+    Qt.UserRole + 2: "email",
+    Qt.UserRole + 3: "storefront",
+    Qt.UserRole + 4: "storefrontName",
+    Qt.UserRole + 5: "current",
+    Qt.UserRole + 6: "logged",
+}
+
+JOB_ROLES = {
+    Qt.UserRole + 1: "title",
+    Qt.UserRole + 2: "phase",
+    Qt.UserRole + 3: "downloadText",
+    Qt.UserRole + 4: "installText",
+    Qt.UserRole + 5: "downloadPct",
+    Qt.UserRole + 6: "installPct",
+    Qt.UserRole + 7: "state",
+    Qt.UserRole + 8: "appId",
 }
 
 
@@ -53,10 +80,13 @@ class DictList(QAbstractListModel):
         if not name:
             return None
         value = self._rows[index.row()].get(name)
-        if name == "selected":
+        if name in ("selected", "mine", "legacy", "current", "logged"):
             return bool(value)
-        if name == "mine":
-            return bool(value)
+        if name in ("downloadPct", "installPct"):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
         return "" if value is None else value
 
     def replace(self, rows: list[dict]) -> None:
@@ -95,6 +125,15 @@ class DictList(QAbstractListModel):
         roles = [key for key, name in self._roles.items() if name in fields]
         for i, item in enumerate(self._rows):
             if str(item.get("appId") or item.get("id") or "") != str(app_id):
+                continue
+            item.update(fields)
+            idx = self.index(i)
+            self.dataChanged.emit(idx, idx, roles or None)
+
+    def patch_by_value(self, value: str, **fields) -> None:
+        roles = [key for key, name in self._roles.items() if name in fields]
+        for i, item in enumerate(self._rows):
+            if str(item.get("value") or "") != str(value):
                 continue
             item.update(fields)
             idx = self.index(i)

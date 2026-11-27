@@ -5,9 +5,23 @@ import QtQuick.Layouts
 ColumnLayout {
     spacing: 12
 
-    PageTitle {
-        title: "Каталог"
-        sub: "Поиск по названию, App ID или ссылке App Store. Отметьте несколько — поставим по очереди."
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 12
+        PageTitle {
+            Layout.fillWidth: true
+            title: "Каталог"
+            sub: "Поиск по названию, App ID или ссылке App Store. Витрина задаёт страну каталога."
+        }
+        ComboBox {
+            id: storefront
+            implicitWidth: 200; implicitHeight: 38
+            model: backend.storefronts
+            textRole: "title"
+            currentIndex: backend.storefrontIndex
+            onActivated: backend.setStorefrontIndex(currentIndex)
+            font.family: backend.pal.font; font.pixelSize: 13
+        }
     }
 
     TextField {

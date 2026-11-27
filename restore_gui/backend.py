@@ -15,15 +15,22 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 
 import restore_apps as core
 from restore_gui import theme
-from restore_gui.models import APP_ROLES, FILE_ROLES, VERSION_ROLES, DictList
+from restore_gui.models import (
+    ACCOUNT_ROLES, APP_ROLES, FILE_ROLES, JOB_ROLES, STOREFRONT_ROLES, VERSION_ROLES, DictList,
+)
+from restore_gui.service import accounts
+from restore_gui.service import codesign
 from restore_gui.service import device as device_svc
 from restore_gui.service import icons as icon_svc
 from restore_gui.service import ipa as ipa_svc
 from restore_gui.service import itunes
 from restore_gui.service import paths
 from restore_gui.service import prefs
+from restore_gui.service import progress as progress_svc
+from restore_gui.service import regions
 from restore_gui.service import secrets
 from restore_gui.service import updater
+from restore_gui.service.install_errors import InstallError
 from restore_gui.service.prices import format_price
 from restore_gui.service.store import Store, StoreError, parse_app_ref
 
@@ -100,6 +107,22 @@ class Backend(QObject):
     updateNotesChanged, updateNotes = qprop(str, "updateNotes")
     backupTextChanged, backupText = qprop(str, "backupText")
     backupAvailableChanged, backupAvailable = qprop(bool, "backupAvailable")
+    storefrontIndexChanged, storefrontIndex = qprop(int, "storefrontIndex")
+    accountStorefrontChanged, accountStorefront = qprop(str, "accountStorefront")
+    accountStorefrontNameChanged, accountStorefrontName = qprop(str, "accountStorefrontName")
+    detailAvailabilityChanged, detailAvailability = qprop(str, "detailAvailability")
+    detailSwitchHintChanged, detailSwitchHint = qprop(str, "detailSwitchHint")
+    detailSwitchAccountIdChanged, detailSwitchAccountId = qprop(str, "detailSwitchAccountId")
+    installHintChanged, installHint = qprop(str, "installHint")
+    newerVersionReadyChanged, newerVersionReady = qprop(bool, "newerVersionReady")
+    installAnywayReadyChanged, installAnywayReady = qprop(bool, "installAnywayReady")
+    jobActiveChanged, jobActive = qprop(bool, "jobActive")
+    jobOverallChanged, jobOverall = qprop(str, "jobOverall")
+    downloadPctChanged, downloadPct = qprop(float, "downloadPct")
+    downloadTextChanged, downloadText = qprop(str, "downloadText")
+    installPctChanged, installPct = qprop(float, "installPct")
+    installTextChanged, installText = qprop(str, "installText")
+    jobCountChanged, jobCount = qprop(int, "jobCount")
 
     version = Property(str, lambda self: core.__version__, constant=True)
     displayName = Property(str, lambda self: core.DISPLAY_NAME, constant=True)
@@ -163,6 +186,26 @@ class Backend(QObject):
         self._backupText = ""
         self._backupAvailable = False
         self._skipVersion = ""
+        self._storefrontIndex = 0
+        self._accountStorefront = ""
+        self._accountStorefrontName = ""
+        self._detailAvailability = ""
+        self._detailSwitchHint = ""
+        self._detailSwitchAccountId = ""
+        self._installHint = ""
+        self._newerVersionReady = False
+        self._installAnywayReady = False
+        self._jobActive = False
+        self._jobOverall = ""
+        self._downloadPct = -1.0
+        self._downloadText = ""
+        self._installPct = -1.0
+        self._installText = ""
+        self._jobCount = 0
+        self._current_account_id = ""
+        self._adding_account = False
+        self._login_home = None
+        self._pending_ipa = None
         self._pending_login = None
         self._ask_kind = ""
         self._stop = threading.Event()
@@ -178,16 +221,22 @@ class Backend(QObject):
         self._clones = DictList(APP_ROLES, self)
         self._versions = DictList(VERSION_ROLES, self)
         self._ipa = DictList(FILE_ROLES, self)
+        self._storefronts = DictList(STOREFRONT_ROLES, self)
+        self._accounts = DictList(ACCOUNT_ROLES, self)
+        self._jobList = DictList(JOB_ROLES, self)
         self._palette = theme.Palette(self)
         self._store = None
         self._load_prefs()
+        self._storefronts.replace(regions.rows())
+        self._storefrontIndex = regions.index_of(self._country)
+        self._reload_accounts()
         self._refresh_palette()
         self.refresh_ipa()
         self._refresh_backup()
         self.themeModeChanged.connect(self._on_chrome_changed)
         self.accentNameChanged.connect(self._on_chrome_changed)
         self.heroineNameChanged.connect(self._on_chrome_changed)
-        self.countryChanged.connect(self._persist)
+        self.countryChanged.connect(self._on_country)
         self.deleteAfterInstallChanged.connect(self._persist)
         self.notifyDoneChanged.connect(self._persist)
         self.autoUpdateChanged.connect(self._persist)
@@ -197,8 +246,14 @@ class Backend(QObject):
 
     def _store_client(self) -> Store:
         if self._store is None:
-            self._store = Store(passphrase=secrets.load_passphrase())
+            home = paths.account_home(self._current_account_id or None)
+            self._store = Store(passphrase=secrets.load_passphrase(), home=home)
         return self._store
+
+    def _reset_store(self) -> None:
+        if self._store is not None:
+            self._store.cancel()
+        self._store = None
 
     def _load_prefs(self) -> None:
         data = prefs.load()
@@ -206,6 +261,7 @@ class Backend(QObject):
         self._accentName = data["accentName"]
         self._heroineName = data["heroineName"]
         self._country = data["country"] or "ru"
+        self._storefrontIndex = regions.index_of(self._country)
         self._deleteAfterInstall = data["deleteAfterInstall"]
         self._notifyDone = data["notifyDone"]
         self._autoUpdate = data["autoUpdate"]
@@ -260,6 +316,9 @@ class Backend(QObject):
     clones = Property(QObject, lambda self: self._clones, constant=True)
     versions = Property(QObject, lambda self: self._versions, constant=True)
     ipaFiles = Property(QObject, lambda self: self._ipa, constant=True)
+    storefronts = Property(QObject, lambda self: self._storefronts, constant=True)
+    accounts = Property(QObject, lambda self: self._accounts, constant=True)
+    jobs = Property(QObject, lambda self: self._jobList, constant=True)
     defaultIpaDir = Property(str, lambda self: str(paths.default_ipa_dir()), constant=True)
 
     categoriesChanged = Signal()
@@ -324,7 +383,7 @@ class Backend(QObject):
 
     def _startup(self):
         self._run(self._restore_session, self._on_session)
-        self._run(self._probe_device, self._on_device)
+        self._run(self._probe_device, self._on_device, mark_busy=False)
         if self._autoUpdate:
             QTimer.singleShot(1500, lambda: self.checkUpdates(silent=True))
         QTimer.singleShot(800, self._load_popular)
@@ -334,22 +393,73 @@ class Backend(QObject):
         self._device_timer.start()
 
     def _restore_session(self):
+        data = accounts.load()
+        current = data.get("current") or ""
+        self._current_account_id = current
+        self._reset_store()
         store = self._store_client()
         if not store.available():
-            return {"logged": False, "email": "", "note": "ipatool-cpp не найден"}
+            return {"logged": False, "email": "", "note": "ipatool-cpp не найден", "storefront": "", "account_id": current}
         info = store.info()
         if not info:
-            return {"logged": False, "email": ""}
+            # прежний tool-home мог остаться от прошлого входа
+            if not current:
+                info = Store(passphrase=secrets.load_passphrase(), home=paths.tool_home()).info()
+            if not info:
+                return {"logged": False, "email": "", "storefront": "", "account_id": current}
         email = str(info.get("email") or info.get("account") or "")
-        return {"logged": bool(info.get("success", True) and email), "email": email}
+        storefront = regions.parse_storefront(info.get("storeFront") or info.get("storefront") or "")
+        return {
+            "logged": bool(info.get("success", True) and email),
+            "email": email,
+            "storefront": storefront,
+            "account_id": current,
+        }
 
     def _on_session(self, result, error):
         if error or not result:
+            self._reload_accounts()
             return
-        self.loggedIn = bool(result.get("logged"))
-        self.account = result.get("email") or ""
+        self._apply_account(result)
         if result.get("note"):
             self.log(result["note"])
+
+    def _apply_account(self, result: dict) -> None:
+        email = result.get("email") or ""
+        storefront = result.get("storefront") or ""
+        logged = bool(result.get("logged") and email)
+        if logged:
+            acc = accounts.upsert(email, storefront, account_id=result.get("account_id") or self._current_account_id or None)
+            self._current_account_id = acc["id"]
+            storefront = acc.get("storefront") or storefront
+        self.loggedIn = logged
+        self.account = email if logged else ""
+        self.accountStorefront = storefront if logged else ""
+        self.accountStorefrontName = regions.name(storefront) if logged and storefront else ""
+        self._reload_accounts()
+
+    def _reload_accounts(self) -> None:
+        data = accounts.load()
+        self._current_account_id = data.get("current") or self._current_account_id
+        rows = []
+        for item in data.get("accounts") or []:
+            sf = item.get("storefront") or ""
+            rows.append({
+                "id": item["id"],
+                "email": item["email"],
+                "storefront": sf,
+                "storefrontName": regions.name(sf),
+                "current": item["id"] == self._current_account_id,
+                "logged": item["id"] == self._current_account_id and self._loggedIn,
+            })
+        self._accounts.replace(rows)
+
+    def _on_country(self, *_):
+        self._storefrontIndex = regions.index_of(self._country)
+        self.storefrontIndex = self._storefrontIndex
+        self._persist()
+        if self._page == "apps":
+            self._load_catalog(self._category)
 
     def _probe_device(self):
         return device_svc.status(autopair=False)
@@ -357,7 +467,7 @@ class Backend(QObject):
     def _poll_device(self):
         if self._busy:
             return
-        self._run(self._probe_device, self._on_device)
+        self._run(self._probe_device, self._on_device, mark_busy=False)
 
     def _on_device(self, result, error):
         if error or not result:
@@ -429,7 +539,7 @@ class Backend(QObject):
 
         self._run(work, done)
 
-    def _run(self, fn, done=None):
+    def _run(self, fn, done=None, *, mark_busy=True):
         # Один Event на задачу: stop() не должен подменять его, иначе «Остановить» не доходит до потока.
         self._stop.clear()
 
@@ -449,15 +559,17 @@ class Backend(QObject):
                         done(result, error)
                 except Exception as exc:  # noqa: BLE001
                     self.log(f"ошибка после операции: {exc}")
-                    self.show_notice("Ошибка", str(exc)[:400])
-                self.busy = False
+                    self.show_notice("Ошибка", _public_error(exc))
+                if mark_busy:
+                    self.busy = False
                 self.taskFinished.emit()
 
             # Без объекта-контекста QTimer из рабочего потока не срабатывает
             # (в том потоке нет цикла событий) — кнопка «Входим…» зависала навсегда.
             QTimer.singleShot(0, self, finish)
 
-        self.busy = True
+        if mark_busy:
+            self.busy = True
         thread = threading.Thread(target=wrap, daemon=True)
         self._jobs.append(thread)
         thread.start()
@@ -558,6 +670,9 @@ class Backend(QObject):
     def closeLogin(self):
         self.loginOpen = False
         self.loginNeedsCode = False
+        if not self._loggedIn:
+            self._adding_account = False
+            self._login_home = None
 
     @Slot(str, str)
     @Slot(str, str, str)
@@ -569,13 +684,14 @@ class Backend(QObject):
         if self.loginNeedsCode and not (auth_code or "").strip():
             self.show_notice("Вход", "Введите код подтверждения, который прислала Apple.")
             return
-        self._pending_login = {"email": email, "password": password}
-        try:
-            self._store_client()
-        except Exception as exc:  # noqa: BLE001
-            self.log(str(exc))
-            self.show_notice("Вход", str(exc)[:400])
-            return
+        pending = {"email": email, "password": password}
+        if self._adding_account or self._login_home:
+            pending["home"] = self._login_home or paths.account_home(accounts._new_id(email))
+            self._login_home = pending["home"]
+        elif self._current_account_id:
+            pending["account_id"] = self._current_account_id
+            pending["home"] = paths.account_home(self._current_account_id)
+        self._pending_login = pending
         self.log("Запускаю вход в Apple ID…")
         self._do_login((auth_code or "").strip() or None)
 
@@ -583,7 +699,12 @@ class Backend(QObject):
         pending = self._pending_login or {}
 
         def work():
-            return self._store_client().login(pending.get("email", ""), pending.get("password", ""), code)
+            home = pending.get("home") or paths.account_home(pending.get("account_id") or self._current_account_id or None)
+            store = Store(passphrase=secrets.load_passphrase(), home=home)
+            result = store.login(pending.get("email", ""), pending.get("password", ""), code)
+            # переключаем клиент на этот HOME только после успешного входа
+            self._store = store
+            return result
 
         def done(result, error):
             if error and isinstance(error, StoreError) and error.needs_2fa:
@@ -605,10 +726,19 @@ class Backend(QObject):
             self._pending_login = None
             self.loginNeedsCode = False
             email = (result or {}).get("email") or pending.get("email") or ""
-            self.loggedIn = True
-            self.account = email
+            storefront = regions.parse_storefront((result or {}).get("storeFront") or (result or {}).get("storefront") or "")
+            info = {}
+            try:
+                info = self._store_client().info() or {}
+            except StoreError:
+                info = {}
+            storefront = storefront or regions.parse_storefront(info.get("storeFront") or info.get("storefront") or "")
+            account_id = pending.get("account_id") or self._current_account_id
+            self._apply_account({"logged": True, "email": email, "storefront": storefront, "account_id": account_id})
+            self._adding_account = False
+            self._login_home = None
             self.loginOpen = False
-            self.log("Вход выполнен")
+            self.log("Вход выполнен" + (f" · витрина {regions.name(storefront)}" if storefront else ""))
 
         self._run(work, done)
 
@@ -634,11 +764,98 @@ class Backend(QObject):
         def done(_result, _error):
             self.loggedIn = False
             self.account = ""
+            self.accountStorefront = ""
+            self.accountStorefrontName = ""
             self._purchases = []
             self._mine.replace([])
+            self._reload_accounts()
             self.log("Вы вышли из Apple ID")
 
         self._run(work, done)
+
+    @Slot()
+    def addAccount(self):
+        self._adding_account = True
+        # новый HOME, чтобы не перезаписать сессию текущего аккаунта до успешного входа
+        new_id = accounts._new_id("account")
+        self._login_home = paths.account_home(new_id)
+        self.openLogin("Войдите в другой Apple ID. Пароль на диск не сохраняется. Сессия хранится отдельно.")
+
+    @Slot(str)
+    def switchAccount(self, account_id):
+        account_id = str(account_id or "")
+        row = accounts.find(account_id)
+        if not row:
+            return
+        self.detailOpen = False
+        accounts.set_current(account_id)
+        self._current_account_id = account_id
+        self._reset_store()
+        self._purchases = []
+        self._mine.replace([])
+
+        def work():
+            info = self._store_client().info()
+            email = str((info or {}).get("email") or (info or {}).get("account") or "") if info else ""
+            storefront = regions.parse_storefront((info or {}).get("storeFront") or (info or {}).get("storefront") or "") if info else row.get("storefront") or ""
+            return {"logged": bool(info and email), "email": email or row.get("email") or "", "storefront": storefront or row.get("storefront") or "", "account_id": account_id}
+
+        def done(result, error):
+            if error or not result or not result.get("logged"):
+                self.loggedIn = False
+                self.account = row.get("email") or ""
+                self.accountStorefront = row.get("storefront") or ""
+                self.accountStorefrontName = regions.name(self._accountStorefront)
+                self._reload_accounts()
+                self.openLogin(f"Войдите в {row.get('email') or 'этот Apple ID'}, чтобы скачивать из его витрины.")
+                return
+            self._apply_account(result)
+            self.log(f"Переключились на {result.get('email')}")
+
+        self._run(work, done)
+
+    @Slot(str)
+    def removeAccount(self, account_id):
+        account_id = str(account_id or "")
+        row = accounts.find(account_id)
+        if not row:
+            return
+
+        def work():
+            if account_id == self._current_account_id:
+                try:
+                    self._store_client().revoke()
+                except StoreError:
+                    pass
+            accounts.delete_home(account_id)
+            return accounts.remove(account_id)
+
+        def done(data, error):
+            if error:
+                self.log(str(error))
+            nxt = (data or {}).get("current") or ""
+            self._current_account_id = nxt
+            self._reset_store()
+            if nxt:
+                self.switchAccount(nxt)
+            else:
+                self.loggedIn = False
+                self.account = ""
+                self.accountStorefront = ""
+                self.accountStorefrontName = ""
+                self._purchases = []
+                self._mine.replace([])
+                self._reload_accounts()
+            self.log("Аккаунт удалён. Пароль на диске не хранился.")
+
+        self._run(work, done)
+
+    @Slot(int)
+    def setStorefrontIndex(self, index):
+        codes = regions.codes()
+        if 0 <= int(index) < len(codes):
+            self.storefrontIndex = int(index)
+            self.country = codes[int(index)]
 
     @Slot()
     def loadPurchases(self):
@@ -841,6 +1058,13 @@ class Backend(QObject):
         self.selectedVersion = ""
         self.versionNeedPurchase = False
         self.actionsEnabled = False
+        self.detailAvailability = ""
+        self.detailSwitchHint = ""
+        self.detailSwitchAccountId = ""
+        self.installHint = ""
+        self.newerVersionReady = False
+        self.installAnywayReady = False
+        self._pending_ipa = None
         self.detailChecks = {
             "acc": {"text": "вход выполнен" if self._loggedIn else "нужен вход в Apple ID",
                     "kind": "ok" if self._loggedIn else "warn"},
@@ -853,17 +1077,23 @@ class Backend(QObject):
 
         def work():
             store_item = None
+            avail = {"present": [], "missing": [], "text": ""}
             try:
                 store_item = itunes.lookup(app["id"], self._country or "ru") if app["id"] else None
             except itunes.ITunesError:
                 store_item = None
+            if app["id"]:
+                try:
+                    avail = itunes.availability(app["id"])
+                except itunes.ITunesError:
+                    avail = {"present": [], "missing": [], "text": ""}
             versions = []
             err = ""
             try:
                 versions = self._store_client().list_versions(app_id=app["id"] or None, bundle=app["bundle"] or None)
             except StoreError as exc:
                 err = str(exc)
-            return store_item, versions, err
+            return store_item, versions, err, avail
 
         def done(result, error):
             if error:
@@ -871,13 +1101,14 @@ class Backend(QObject):
                 self.detailErr = _public_error(error)
                 self.log(f"Версии: {error}")
                 return
-            store_item, versions, err = result
+            store_item, versions, err, avail = result
             checks = dict(self._detailChecks)
             if store_item:
-                checks["store"] = {"text": "есть в App Store", "kind": "ok"}
+                checks["store"] = {"text": f"есть в App Store {regions.name(self._country or 'ru')}", "kind": "ok"}
             else:
-                checks["store"] = {"text": "не найдено в текущей стране каталога", "kind": "warn"}
+                checks["store"] = {"text": "нет в выбранной витрине каталога", "kind": "warn"}
             self.detailChecks = checks
+            self._apply_availability(app["id"], avail)
             if versions:
                 self._show_versions(versions, app)
                 return
@@ -900,6 +1131,8 @@ class Backend(QObject):
 
     def _show_versions(self, versions, app=None):
         self.versionNeedPurchase = False
+        app = app or self._detailApp or {}
+        versions = [_with_legacy_flag(row, app.get("id")) for row in versions]
         self._versions.replace(versions)
         self.selectedVersion = versions[0]["value"]
         self.versionMode = "list"
@@ -914,11 +1147,12 @@ class Backend(QObject):
                 if error or not rows:
                     return
                 current = self.selectedVersion
-                self._versions.replace(rows)
+                flagged = [_with_legacy_flag(row, app.get("id")) for row in rows]
+                self._versions.replace(flagged)
                 if current:
                     self.selectedVersion = current
 
-            self._run(work, done)
+            self._run(work, done, mark_busy=False)
 
     @Slot()
     def purchaseAndListVersions(self):
@@ -988,37 +1222,96 @@ class Backend(QObject):
             return
         folder = Path(self._ipaDir)
         folder.mkdir(parents=True, exist_ok=True)
+        jobs = []
+        for item in rows:
+            title = item.get("title") or item.get("name") or item.get("appId") or item.get("id") or "приложение"
+            jobs.append({
+                "title": title,
+                "phase": "очередь",
+                "downloadText": "",
+                "installText": "",
+                "downloadPct": 0,
+                "installPct": 0,
+                "state": "queued",
+                "appId": item.get("appId") or item.get("id") or "",
+            })
+        self._begin_jobs(jobs, install=install)
 
         def work():
             results = []
-            for item in rows:
+            legacy = None
+            for index, item in enumerate(rows):
                 if self._stop.is_set():
                     break
+                title = item.get("title") or item.get("name") or item.get("appId") or "приложение"
+                self._job_status(index, state="download", phase="скачивание")
                 app_id = item.get("appId") or item.get("id")
                 bundle = item.get("bundle")
-                title = item.get("title") or item.get("name") or app_id or "app"
                 dest = folder / f"{_safe_name(title)}.ipa"
-                path = self._store_client().download(
-                    dest, app_id=app_id, bundle=bundle or None,
-                    version_id=item.get("version") or None, buy=self._purchase,
-                )
-                results.append(path)
-                if install:
-                    device_svc.install_ipa(path)
-                    if self._deleteAfterInstall:
-                        try:
-                            path.unlink()
-                        except OSError:
-                            pass
-            return results
+                version_id = item.get("version") or self._selectedVersion or None
 
-        def done(results, error):
+                def on_dl(hit, i=index):
+                    text = progress_svc.format_download(hit.get("pct"), hit.get("done"), hit.get("total"), hit.get("speed"))
+                    self._job_status(i, downloadPct=hit.get("pct") if hit.get("pct") is not None else -1, downloadText=text, phase="скачивание", state="download")
+
+                try:
+                    path = self._store_client().download(
+                        dest, app_id=app_id, bundle=bundle or None,
+                        version_id=version_id, buy=self._purchase, on_progress=on_dl,
+                    )
+                except StoreError as exc:
+                    self._job_status(index, state="error", phase="ошибка", downloadText=_public_error(exc))
+                    raise
+                self._job_status(index, state="downloaded", phase="скачано", downloadPct=100, downloadText="100 %")
+                results.append(path)
+                if not install:
+                    continue
+                verdict = codesign.inspect_ipa(path)
+                if verdict.get("legacy"):
+                    _remember_legacy(app_id, version_id)
+                    self._job_status(index, state="legacy", phase="старая подпись", installText=codesign.LEGACY_TEXT)
+                    legacy = {"path": str(path), "title": title, "app_id": app_id, "version": version_id, "verdict": verdict}
+                    continue
+
+                def on_inst(hit, i=index):
+                    text = progress_svc.format_install(hit.get("pct"), hit.get("stage") or "")
+                    self._job_status(i, installPct=hit.get("pct") if hit.get("pct") is not None else -1, installText=text, phase=hit.get("stage") or "установка", state="install")
+
+                device_svc.install_ipa(path, on_progress=on_inst)
+                self._job_status(index, state="done", phase="готово", installPct=100, installText="100 % · установка")
+                if self._deleteAfterInstall:
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+            return {"paths": results, "legacy": legacy, "install": install}
+
+        def done(result, error):
             self.refresh_ipa()
+            self.jobActive = False
             if error:
-                self.log(str(error))
-                self.show_notice("Загрузка", str(error))
+                raw = getattr(error, "raw", "") or str(error)
+                paths.write_app_log(f"загрузка/установка: {raw}")
+                public = _public_error(error)
+                self.log(public)
+                self.installHint = public if isinstance(error, InstallError) or "0xe8" in raw.lower() or "signature" in raw.lower() or "storefront" in raw.lower() or "region" in raw.lower() else public
+                if isinstance(error, InstallError) and error.kind == "legacy_signature":
+                    self.installHint = error.public
+                    self.newerVersionReady = bool(self._next_newer_version())
+                self.show_notice("Загрузка" if not install else "Установка", public)
                 return
-            self.log(f"Готово файлов: {len(results or [])}")
+            legacy = (result or {}).get("legacy")
+            paths_ok = (result or {}).get("paths") or []
+            if legacy:
+                self.installHint = codesign.LEGACY_TEXT
+                self.newerVersionReady = bool(self._next_newer_version())
+                self.installAnywayReady = True
+                self._pending_ipa = legacy
+                self._mark_legacy_version(legacy.get("version"))
+                self.show_notice("Установка", codesign.LEGACY_TEXT)
+                return
+            self.installHint = ""
+            self.log(f"Готово файлов: {len(paths_ok)}")
             if self._notifyDone:
                 self.show_notice("Готово", "Установка завершена." if install else "IPA сохранён в папку загрузок.")
 
@@ -1136,7 +1429,11 @@ class Backend(QObject):
             "из Microsoft Store, подключите кабель и на телефоне нажмите «Доверять».\n"
             f"Ссылка: {core.APPLE_DEVICES_STORE_URL}\n\n"
             "Пароль Apple ID на диск не записывается: сессию хранит ipatool-cpp в зашифрованном виде, "
-            "а ключ к ней — в Windows Credential Manager или в файле, защищённом DPAPI.\n\n"
+            "а ключ к ней — в Windows Credential Manager или в файле, защищённом DPAPI. "
+            "Можно добавить несколько Apple ID разных стран и переключаться между ними: "
+            "Apple отдаёт файл только в витрине того аккаунта, под которым вы вошли.\n\n"
+            "В каталоге можно выбрать страну витрины. Если приложения нет в текущем аккаунте, "
+            "программа подскажет, каким из сохранённых Apple ID его скачать.\n\n"
             "Обновления берутся только с GitHub Releases, файл сверяется по SHA-256. "
             "Если что-то пойдёт не так, в «Настройки → О программе» можно вернуть предыдущую копию.\n\n"
             "Журналы: %LOCALAPPDATA%\\RestoreAppStore\\app.log и startup.log. "
@@ -1145,6 +1442,135 @@ class Backend(QObject):
             "Настройки → ваше имя → Вход и безопасность → Получить код проверки. "
             "Диагностика кабеля: RestoreAppStore.exe --diag-device (пишет в app.log и сразу закрывается)."
         )
+
+
+    def _apply_availability(self, app_id: str, avail: dict) -> None:
+        present = list(avail.get("present") or [])
+        self.detailAvailability = avail.get("text") or ""
+        self.detailSwitchHint = ""
+        self.detailSwitchAccountId = ""
+        account_sf = self._accountStorefront or ""
+        if account_sf and account_sf in present:
+            return
+        # если текущая витрина аккаунта не содержит приложение — подсказка сменить аккаунт
+        other = accounts.find_by_storefronts(present, exclude=self._current_account_id)
+        if other:
+            self.detailSwitchHint = regions.switch_hint(other.get("email") or "", other.get("storefront") or "")
+            self.detailSwitchAccountId = other["id"]
+        elif present and account_sf and account_sf not in present:
+            self.detailSwitchHint = regions.unavailable_message(present)
+
+    def _begin_jobs(self, jobs: list[dict], *, install: bool) -> None:
+        self._jobList.replace(jobs)
+        self.jobCount = len(jobs)
+        self.jobActive = True
+        self.jobOverall = f"1 из {len(jobs)}" if jobs else ""
+        self.downloadPct = 0
+        self.downloadText = "Скачивание…"
+        self.installPct = -1 if not install else 0
+        self.installText = "Установка…" if install else ""
+        self.installHint = ""
+        self.newerVersionReady = False
+        self.installAnywayReady = False
+
+    def _job_status(self, index: int, **fields) -> None:
+        def apply():
+            row = self._jobList.at(index)
+            if row:
+                self._jobList._rows[index].update(fields)
+                # обновить роли
+                self._jobList.dataChanged.emit(self._jobList.index(index), self._jobList.index(index))
+            if fields.get("downloadText") is not None or fields.get("downloadPct") is not None:
+                if fields.get("downloadPct") is not None:
+                    self.downloadPct = float(fields["downloadPct"]) if fields["downloadPct"] is not None else -1
+                if fields.get("downloadText"):
+                    self.downloadText = fields["downloadText"]
+            if fields.get("installText") is not None or fields.get("installPct") is not None:
+                if fields.get("installPct") is not None:
+                    self.installPct = float(fields["installPct"]) if fields["installPct"] is not None else -1
+                if fields.get("installText"):
+                    self.installText = fields["installText"]
+            total = max(1, len(self._jobList._rows))
+            self.jobOverall = f"{index + 1} из {total}" + (f" · {row['title']}" if row and row.get("title") else "")
+            self.jobCount = total
+        QTimer.singleShot(0, self, apply)
+
+    def _next_newer_version(self) -> dict | None:
+        rows = list(getattr(self._versions, "_rows", []) or [])
+        if not rows:
+            return None
+        current = self._selectedVersion
+        ordered = sorted(rows, key=_version_sort_key)
+        values = [str(row.get("value") or "") for row in ordered]
+        if current not in values:
+            return ordered[-1] if ordered else None
+        idx = values.index(current)
+        if idx + 1 < len(ordered):
+            return ordered[idx + 1]
+        return None
+
+    def _mark_legacy_version(self, version_id) -> None:
+        if not version_id:
+            return
+        for row in getattr(self._versions, "_rows", []) or []:
+            if str(row.get("value") or "") == str(version_id):
+                note = "старая подпись — iOS не примет"
+                sub = row.get("sub") or ""
+                if note not in sub:
+                    sub = (sub + " · " if sub else "") + note
+                self._versions.patch_by_value(str(version_id), legacy=True, note=note, sub=sub)
+
+    @Slot()
+    def selectNewerVersion(self):
+        nxt = self._next_newer_version()
+        if not nxt:
+            self.show_notice("Версии", "Это самая новая версия в списке. Более новую Apple уже не отдаёт.")
+            return
+        self.selectedVersion = nxt["value"]
+        self.installHint = f"Выбрана более новая версия {nxt.get('title') or nxt['value']}. Можно скачать и установить её."
+        self.newerVersionReady = bool(self._next_newer_version())
+        self.installAnywayReady = False
+        self.versionMode = "list"
+
+    @Slot()
+    def installAnyway(self):
+        pending = self._pending_ipa or {}
+        path = Path(pending.get("path") or "")
+        if not path.is_file():
+            self.show_notice("Установка", "Сначала скачайте файл ещё раз.")
+            return
+
+        def work():
+            def on_inst(hit):
+                text = progress_svc.format_install(hit.get("pct"), hit.get("stage") or "")
+                self._job_status(0, installPct=hit.get("pct") if hit.get("pct") is not None else -1, installText=text, phase=hit.get("stage") or "установка", state="install")
+            self._begin_jobs([{"title": pending.get("title") or path.name, "phase": "установка", "downloadText": "уже скачано", "installText": "Установка…", "downloadPct": 100, "installPct": 0, "state": "install", "appId": pending.get("app_id") or ""}], install=True)
+            device_svc.install_ipa(path, on_progress=on_inst)
+            return path
+
+        def done(_result, error):
+            self.jobActive = False
+            self.installAnywayReady = False
+            if error:
+                paths.write_app_log(f"установка: {getattr(error, 'raw', '') or error}")
+                public = _public_error(error)
+                self.installHint = public
+                self.newerVersionReady = bool(self._next_newer_version())
+                self.show_notice("Установка", public)
+                return
+            self.installHint = ""
+            self.log("Установка завершена")
+            if self._notifyDone:
+                self.show_notice("Готово", "Установка завершена.")
+
+        self._run(work, done)
+
+    @Slot()
+    def refreshIcons(self):
+        itunes.clear_miss_cache()
+        for model in (self._mine, self._apps, self._popular):
+            self._fill_icons(model)
+        self.log("Обновляю иконки, в том числе в других витринах App Store…")
 
     @Slot()
     def shutdown(self):
@@ -1224,9 +1650,10 @@ class Backend(QObject):
             found = {}
             need_lookup = [app_id for app_id in missing if not any(
                 str(row.get("remoteIcon") or "").startswith("https://") for row in rows if row.get("appId") == app_id)]
+            bundles = {row["appId"]: row.get("bundle") or "" for row in rows if row.get("appId") and row.get("bundle")}
             if need_lookup:
                 try:
-                    found = itunes.lookup_many(need_lookup, country)
+                    found = itunes.lookup_anywhere(need_lookup, prefer=country, bundles=bundles)
                 except itunes.ITunesError as exc:
                     paths.write_app_log(f"иконки lookup: {exc}")
                     found = {}
@@ -1234,17 +1661,17 @@ class Backend(QObject):
             for row in rows:
                 app_id = row.get("appId") or ""
                 url = str(row.get("remoteIcon") or "")
+                info = found.get(app_id) or {}
                 if not url.startswith("https://"):
-                    url = str((found.get(app_id) or {}).get("icon") or "")
+                    url = str(info.get("icon") or "")
                 if not url.startswith("https://"):
                     continue
                 path = icon_svc.fetch(app_id, url)
                 if path:
                     extra = {}
-                    info = found.get(app_id) or {}
-                    if info.get("price") or info.get("developer"):
-                        price = format_price(info.get("price") or row.get("price") or "")
-                        developer = info.get("developer") or ""
+                    price = format_price(info.get("price") or row.get("price") or "")
+                    developer = info.get("developer") or ""
+                    if developer or price:
                         extra["sub"] = " · ".join(part for part in (developer, price or row.get("sub") or "") if part)
                     updates.append((app_id, paths.file_url(path), extra))
             return updates
@@ -1257,7 +1684,7 @@ class Backend(QObject):
                 fields.update(extra)
                 model.patch_by_id(app_id, **fields)
 
-        self._run(work, done)
+        self._run(work, done, mark_busy=False)
 
     def _tint(self, key: str) -> str:
         digest = hashlib.sha256((key or "?").encode("utf-8")).digest()
@@ -1328,7 +1755,16 @@ def _looks_internal(text: str) -> bool:
 
 
 def _public_error(exc) -> str:
+    if isinstance(exc, InstallError):
+        return exc.public
     text = str(exc or "").strip()
+    from restore_gui.service.install_errors import classify, public_message
+    kind = classify(text)
+    if kind != "other":
+        return public_message(text)
+    from restore_gui.service.regions import is_region_error, unavailable_message
+    if is_region_error(text):
+        return unavailable_message()
     if not text or _looks_internal(text):
         return "Не удалось выполнить операцию. Подробности записаны в журнал."
     return text[:400]
@@ -1341,3 +1777,80 @@ def _public_device_text(text: str, state: str) -> str:
             return device_svc.TRUST_TEXT
         return "Не удалось связаться с устройством. Подключите кабель и нажмите «Доверять» на iPhone или iPad."
     return raw
+
+
+def _legacy_cache_path() -> Path:
+    folder = paths.data_dir() / "cache"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "legacy-signatures.json"
+
+
+def _remember_legacy(app_id, version_id) -> None:
+    import json
+    if not app_id or not version_id:
+        return
+    path = _legacy_cache_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data[f"{app_id}:{version_id}"] = True
+    try:
+        path.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _is_cached_legacy(app_id, version_id) -> bool:
+    import json
+    if not app_id or not version_id:
+        return False
+    path = _legacy_cache_path()
+    if not path.is_file():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return bool(isinstance(data, dict) and data.get(f"{app_id}:{version_id}"))
+
+
+def _with_legacy_flag(row: dict, app_id) -> dict:
+    item = dict(row)
+    if _is_cached_legacy(app_id, item.get("value")):
+        item["legacy"] = True
+        note = "старая подпись — iOS не примет"
+        item["note"] = note
+        sub = item.get("sub") or ""
+        if note not in sub:
+            item["sub"] = (sub + " · " if sub else "") + note
+    else:
+        item.setdefault("legacy", False)
+        item.setdefault("note", "")
+    return item
+
+
+def _version_sort_key(row: dict):
+    import re
+    from datetime import datetime
+    raw_date = str(row.get("sub") or row.get("date") or "")
+    stamp = datetime.min
+    m = re.search(r"\d{4}-\d{2}-\d{2}", raw_date)
+    if m:
+        try:
+            stamp = datetime.fromisoformat(m.group(0))
+        except ValueError:
+            stamp = datetime.min
+    ver = str(row.get("displayVersion") or row.get("title") or "")
+    parts = []
+    for bit in re.findall(r"\d+", ver):
+        try:
+            parts.append(int(bit))
+        except ValueError:
+            parts.append(0)
+    parts += [0] * (4 - len(parts))
+    ext = str(row.get("value") or "")
+    ext_n = int(ext) if ext.isdigit() else 0
+    return (stamp, tuple(parts[:4]), ext_n)

@@ -48,11 +48,21 @@ def parse_app_ref(text: str) -> dict:
 
 
 class Store:
-    def __init__(self, exe: Path | None = None, passphrase: str | None = None):
+    def __init__(self, exe: Path | None = None, passphrase: str | None = None, home: Path | None = None):
         self.exe = Path(exe) if exe else paths.find_ipatool()
         self.passphrase = passphrase or ""
+        self.home = Path(home) if home else None
         self._proc = None
         self._proc_lock = threading.Lock()
+        self._on_output = None
+
+    def _tool_home(self) -> Path:
+        if self.home:
+            path = self.home
+            (path / "AppData" / "Local").mkdir(parents=True, exist_ok=True)
+            (path / "AppData" / "Roaming").mkdir(parents=True, exist_ok=True)
+            return path
+        return paths.tool_home()
 
     def available(self) -> bool:
         return bool(self.exe and self.exe.is_file())
@@ -65,14 +75,14 @@ class Store:
             _kill_process(proc)
 
     def run(self, args: list[str], *, timeout: int = 180, stdin: str | None = None,
-            stop_on_2fa: bool = False) -> dict | str:
+            stop_on_2fa: bool = False, on_output=None) -> dict | str:
         if not self.available():
             raise StoreError("Не найден ipatool-cpp. Положите его рядом с программой.")
         cmd = [str(self.exe), "--format", "json"]
         if self.passphrase:
             cmd += ["--keychain-passphrase", self.passphrase]
         cmd += args
-        home = paths.tool_home()
+        home = self._tool_home()
         env = os.environ.copy()
         env["HOME"] = str(home)
         if sys.platform == "win32":
@@ -120,8 +130,13 @@ class Store:
                         buf.clear()
                         flagged.set()
                         _kill_process(proc)
-                    elif "\n" in text:
+                    elif "\n" in text or "\r" in text:
                         bucket.append(text)
+                        if on_output:
+                            try:
+                                on_output(text)
+                            except Exception:
+                                pass
                         buf.clear()
             except OSError:
                 pass
@@ -304,7 +319,7 @@ class Store:
         return self.run(args, timeout=180)
 
     def download(self, dest: Path, *, app_id: str | None = None, bundle: str | None = None,
-                 version_id: str | None = None, buy: bool = False) -> Path:
+                 version_id: str | None = None, buy: bool = False, on_progress=None) -> Path:
         dest = Path(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         args = ["download"] + _id_flags(app_id, bundle) + ["-o", str(dest)]
@@ -312,7 +327,16 @@ class Store:
             args += ["--external-version-id", str(version_id)]
         if buy:
             args.append("--purchase")
-        self.run(args, timeout=1800)
+
+        def _output(text):
+            if not on_progress:
+                return
+            from .progress import parse_download_progress
+            hit = parse_download_progress(text)
+            if hit:
+                on_progress(hit)
+
+        self.run(args, timeout=1800, on_output=_output if on_progress else None)
         if dest.is_file():
             return dest
         if dest.is_dir():
@@ -440,11 +464,26 @@ def _normalize_app(item: dict) -> dict:
         "date": str(item.get("purchaseDate") or item.get("releaseDate") or ""),
         "kind": str(item.get("kind") or item.get("genre") or ""),
         "genre": str(item.get("primaryGenreName") or item.get("genre") or item.get("kind") or ""),
-        "icon": str(item.get("artworkUrl100") or item.get("icon") or ""),
+        "icon": _artwork_url(item),
+        "developer": str(item.get("artistName") or item.get("sellerName") or item.get("developer") or item.get("artist") or ""),
         "raw": item,
     }
 
 
+
+
+
+def _artwork_url(item: dict) -> str:
+    if not isinstance(item, dict):
+        return ""
+    for key in ("artworkUrl512", "artworkUrl100", "artworkUrl60", "artworkUrl160", "artwork", "icon", "artworkUrl"):
+        value = item.get(key)
+        if isinstance(value, str) and value.startswith("https://"):
+            return value
+    raw = item.get("raw")
+    if isinstance(raw, dict) and raw is not item:
+        return _artwork_url(raw)
+    return ""
 
 
 _SECRET_FLAGS = {
@@ -508,4 +547,8 @@ def _public_message(stdout: str, stderr: str) -> str:
     useful = [line for line in lines if not re.search(r"password|token|passphrase|authorization:", line, re.I)]
     if not useful:
         return "Ошибка входа в App Store"
-    return useful[-1][:400]
+    last = useful[-1][:400]
+    from .regions import is_region_error, unavailable_message
+    if is_region_error("\n".join(useful)):
+        return unavailable_message()
+    return last

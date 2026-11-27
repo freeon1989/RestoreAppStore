@@ -48,6 +48,12 @@ Drawer {
                     TapHandler { onTapped: backend.copyText(String(backend.detailApp.id)) }
                     ToolTip.visible: idHover.hovered; ToolTip.text: "Скопировать"
                 }
+                Text {
+                    visible: backend.accountStorefrontName !== ""
+                    text: "Ваша витрина: " + backend.accountStorefrontName
+                    color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true
+                }
             }
             Btn { text: "✕"; kind: "ghost"; lock: false; implicitWidth: 40; implicitHeight: 40; leftPadding: 0
                   rightPadding: 0; onClicked: panel.close() }
@@ -167,6 +173,8 @@ Drawer {
                                 required property string title
                                 required property string sub
                                 required property bool mine
+                                required property bool legacy
+                                required property string note
                                 readonly property bool chosen: backend.selectedVersion === value
                                 Layout.fillWidth: true
                                 height: 50; radius: 10
@@ -188,7 +196,7 @@ Drawer {
                                         Layout.fillWidth: true; spacing: 0
                                         Text { textFormat: Text.PlainText; text: ver.title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
                                                font.weight: Font.Bold; Layout.fillWidth: true }
-                                        Text { textFormat: Text.PlainText; text: ver.sub; color: ver.mine ? backend.pal.ok : backend.pal.muted; font.family: backend.pal.font
+                                        Text { textFormat: Text.PlainText; text: ver.sub; color: ver.legacy ? backend.pal.warn : (ver.mine ? backend.pal.ok : backend.pal.muted); font.family: backend.pal.font
                                                font.pixelSize: 12; Layout.fillWidth: true }
                                     }
                                 }
@@ -200,6 +208,49 @@ Drawer {
                             text: backend.moreText; kind: "ghost"; lock: false; implicitHeight: 32
                             Layout.alignment: Qt.AlignHCenter
                             onClicked: backend.detailMore()
+                        }
+
+                        Text {
+                            visible: backend.detailAvailability !== ""
+                            text: backend.detailAvailability
+                            color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
+                            wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: 8
+                        }
+                        Text {
+                            visible: backend.detailSwitchHint !== ""
+                            text: backend.detailSwitchHint
+                            color: backend.pal.warn; font.family: backend.pal.font; font.pixelSize: 13
+                            wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        }
+                        Btn {
+                            visible: backend.detailSwitchAccountId !== ""
+                            text: "Переключить аккаунт"
+                            kind: "second"; lock: false; implicitHeight: 34
+                            onClicked: backend.switchAccount(backend.detailSwitchAccountId)
+                        }
+                        Text {
+                            visible: backend.installHint !== ""
+                            text: backend.installHint
+                            color: backend.pal.warn; font.family: backend.pal.font; font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: 6
+                        }
+                        RowLayout {
+                            visible: backend.newerVersionReady || backend.installAnywayReady
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Btn {
+                                visible: backend.newerVersionReady
+                                text: "Выбрать более новую версию"
+                                kind: "primary"; lock: false; implicitHeight: 36
+                                onClicked: backend.selectNewerVersion()
+                            }
+                            Btn {
+                                visible: backend.installAnywayReady
+                                text: "Всё равно установить"
+                                kind: "ghost"; lock: false; implicitHeight: 36
+                                onClicked: backend.installAnyway()
+                            }
                         }
                     }
                 }

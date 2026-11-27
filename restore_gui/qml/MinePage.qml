@@ -12,6 +12,7 @@ ColumnLayout {
         spacing: 8
         Btn { text: "Проверить по каталогу"; kind: "primary"; onClicked: backend.findMine() }
         Btn { text: "Загрузить список покупок"; onClicked: backend.loadPurchases() }
+        Btn { text: "Обновить иконки"; onClicked: backend.refreshIcons() }
     }
 
     AppsList {

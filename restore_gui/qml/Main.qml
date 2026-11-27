@@ -168,33 +168,121 @@ ApplicationWindow {
                 }
             }
 
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.topMargin: 8; Layout.bottomMargin: 10
-                spacing: 10
-                Text { textFormat: Text.PlainText; text: backend.status; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
-                       elide: Text.ElideRight; Layout.fillWidth: true }
-                ProgressBar {
-                    visible: backend.busy
-                    indeterminate: true
-                    implicitWidth: 160; implicitHeight: 4
-                    background: Rectangle { radius: 2; color: backend.pal.border }
-                    contentItem: Item {
-                        clip: true
+                spacing: 8
+
+                ColumnLayout {
+                    visible: backend.jobActive
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Text {
+                        textFormat: Text.PlainText
+                        text: backend.jobOverall
+                        color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 13; font.weight: Font.DemiBold
+                        visible: backend.jobOverall !== ""
+                    }
+                    // Скачивание
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 3
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { text: "Скачивание"; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12 }
+                            Text { textFormat: Text.PlainText; text: backend.downloadText; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 12
+                                   elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
+                        }
                         Rectangle {
-                            id: runner
-                            width: parent.width * 0.35; height: parent.height; radius: 2; color: backend.pal.accent
-                            XAnimator {
-                                target: runner; running: backend.busy; loops: Animation.Infinite
-                                from: -50; to: 160; duration: 1100; easing.type: Easing.InOutQuad
+                            Layout.fillWidth: true; implicitHeight: 6; radius: 3; color: backend.pal.border
+                            clip: true
+                            Rectangle {
+                                anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                radius: 3; color: backend.pal.accent
+                                width: parent.width * (backend.downloadPct < 0 ? 0.35 : Math.max(0, Math.min(1, backend.downloadPct / 100)))
+                                Behavior on width { NumberAnimation { duration: 160 } }
                             }
                         }
                     }
+                    // Установка
+                    ColumnLayout {
+                        visible: backend.installText !== ""
+                        Layout.fillWidth: true
+                        spacing: 3
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { text: "Установка"; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 12 }
+                            Text { textFormat: Text.PlainText; text: backend.installText; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 12
+                                   elide: Text.ElideRight; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true; implicitHeight: 6; radius: 3; color: backend.pal.border
+                            clip: true
+                            Rectangle {
+                                anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                radius: 3; color: backend.pal.ok
+                                width: parent.width * (backend.installPct < 0 ? 0.35 : Math.max(0, Math.min(1, backend.installPct / 100)))
+                                Behavior on width { NumberAnimation { duration: 160 } }
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: backend.jobs
+                        delegate: RowLayout {
+                            required property string title
+                            required property string phase
+                            required property string downloadText
+                            required property string installText
+                            required property real downloadPct
+                            required property real installPct
+                            required property string state
+                            visible: backend.jobCount > 1
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Text { textFormat: Text.PlainText; text: title; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 12
+                                   elide: Text.ElideRight; Layout.preferredWidth: 160 }
+                            Rectangle {
+                                Layout.fillWidth: true; implicitHeight: 4; radius: 2; color: backend.pal.border
+                                clip: true
+                                Rectangle {
+                                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                    radius: 2; color: state === "install" || state === "done" ? backend.pal.ok : backend.pal.accent
+                                    width: parent.width * Math.max(0, Math.min(1, (state === "install" || state === "done" ? installPct : downloadPct) / 100))
+                                }
+                            }
+                            Text { textFormat: Text.PlainText; text: phase; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 11
+                                   elide: Text.ElideRight; Layout.preferredWidth: 140; horizontalAlignment: Text.AlignRight }
+                        }
+                    }
                 }
-                Btn { visible: backend.busy; text: "Остановить"; kind: "danger"; lock: false; implicitHeight: 28
-                      onClicked: backend.stop() }
-                Btn { text: backend.logOpen ? "Скрыть журнал" : "Журнал"; kind: "ghost"; lock: false; implicitHeight: 28
-                      onClicked: backend.logOpen = !backend.logOpen }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Text { textFormat: Text.PlainText; text: backend.status; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
+                           elide: Text.ElideRight; Layout.fillWidth: true }
+                    ProgressBar {
+                        visible: backend.busy && !backend.jobActive
+                        indeterminate: true
+                        implicitWidth: 160; implicitHeight: 4
+                        background: Rectangle { radius: 2; color: backend.pal.border }
+                        contentItem: Item {
+                            clip: true
+                            Rectangle {
+                                id: runner
+                                width: parent.width * 0.35; height: parent.height; radius: 2; color: backend.pal.accent
+                                XAnimator {
+                                    target: runner; running: backend.busy && !backend.jobActive; loops: Animation.Infinite
+                                    from: -50; to: 160; duration: 1100; easing.type: Easing.InOutQuad
+                                }
+                            }
+                        }
+                    }
+                    Btn { visible: backend.busy || backend.jobActive; text: "Остановить"; kind: "danger"; lock: false; implicitHeight: 28
+                          onClicked: backend.stop() }
+                    Btn { text: backend.logOpen ? "Скрыть журнал" : "Журнал"; kind: "ghost"; lock: false; implicitHeight: 28
+                          onClicked: backend.logOpen = !backend.logOpen }
+                }
             }
 
             Rectangle {

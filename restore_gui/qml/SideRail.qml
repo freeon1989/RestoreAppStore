@@ -121,6 +121,13 @@ Rectangle {
                 color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 13; font.weight: Font.DemiBold
                 elide: Text.ElideMiddle; Layout.fillWidth: true
             }
+            Text {
+                visible: backend.accountStorefrontName !== ""
+                textFormat: Text.PlainText
+                text: "Витрина: " + backend.accountStorefrontName
+                color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 11
+                elide: Text.ElideRight; Layout.fillWidth: true
+            }
             Btn { Layout.fillWidth: true; text: "Выйти"; kind: "danger"; lock: false; implicitHeight: 34
                   onClicked: backend.logout() }
         }
