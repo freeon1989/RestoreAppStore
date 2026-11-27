@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/github/v/release/freeon1989/RestoreAppStore?label=релиз" alt="Последний релиз"></a>
+  <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/github/v/release/freeon1989/RestoreAppStore?label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7" alt="Последний релиз"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/исходники-MIT-green.svg" alt="Исходники MIT"></a> <a href="licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/сборка-GPL--3.0-blue.svg" alt="Сборка GPL-3.0"></a>
   <a href="https://github.com/freeon1989/RestoreAppStore/releases/latest"><img src="https://img.shields.io/badge/платформа-Windows%2010%2F11%20x64-0078D6?logo=windows&logoColor=white" alt="Windows 10/11 x64"></a>
 </p>
