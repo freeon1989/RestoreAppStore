@@ -3,7 +3,7 @@
 На Windows без platforms/qwindows.dll Qt показывает
 «no Qt platform plugin could be initialized» и завершается, не доходя до Python.
 Этот модуль ищет плагин в распакованном exe, выставляет QT_QPA_PLATFORM_PLUGIN_PATH
-и пишет %LOCALAPPDATA%\\RestoreAppStore\\startup.log (в том числе QT_DEBUG_PLUGINS).
+и пишет %LOCALAPPDATA%\\RestoreAppStore\\startup.log. Подробный отладчик плагинов Qt — только при RESTORE_DEBUG=1.
 """
 from __future__ import annotations
 
@@ -80,33 +80,29 @@ def configure() -> Path:
         path.write_text("", encoding="utf-8")
     except OSError:
         pass
-    now = datetime.now(timezone(timedelta(hours=1))).strftime("%Y-%m-%d %H:%M:%S %z")
+    now = datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d %H:%M:%S %z")
     log(f"=== RestoreAppStore start {now} ===")
     log(f"python={sys.version}")
     log(f"executable={sys.executable}")
     log(f"frozen={getattr(sys, 'frozen', False)}")
     log(f"_MEIPASS={getattr(sys, '_MEIPASS', '')}")
     log(f"cwd={Path.cwd()}")
-    for root in frozen_roots():
-        log(f"root {root} exists={root.exists()}")
+    debug = os.environ.get("RESTORE_DEBUG", "").strip().lower() in {"1", "true", "yes"}
     platforms = find_platforms()
     if platforms is None:
         log("ERROR: qwindows plugin not found in bundle")
     else:
-        log(f"platforms={platforms}")
-        for n in sorted(p.name for p in platforms.iterdir()) if platforms.is_dir() else []:
-            log(f"  plugin {n}")
+        qwindows = any(p.name.lower().startswith("qwindows") for p in platforms.iterdir()) if platforms.is_dir() else False
+        log(f"platforms={platforms.name} qwindows={'yes' if qwindows else 'NO'}")
         os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(platforms)
         os.environ["QT_PLUGIN_PATH"] = str(platforms.parent)
-        log(f"QT_QPA_PLATFORM_PLUGIN_PATH={platforms}")
-        log(f"QT_PLUGIN_PATH={platforms.parent}")
-    os.environ.setdefault("QT_DEBUG_PLUGINS", "1")
-    os.environ.setdefault("QT_LOGGING_TO_CONSOLE", "1")
-    _install_qt_log()
+    if debug:
+        os.environ.setdefault("QT_DEBUG_PLUGINS", "1")
+    _install_qt_log(verbose=debug)
     return path
 
 
-def _install_qt_log() -> None:
+def _install_qt_log(verbose: bool = False) -> None:
     global _handler_installed
     if _handler_installed:
         return
@@ -118,6 +114,8 @@ def _install_qt_log() -> None:
 
     def handler(kind, ctx, text):
         try:
+            if not verbose and kind in (QtMsgType.QtDebugMsg, QtMsgType.QtInfoMsg):
+                return
             cat = getattr(ctx, "category", "") or ""
             log(f"qt[{int(kind)}] {cat} {text}")
         except Exception:

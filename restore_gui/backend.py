@@ -68,6 +68,7 @@ class Backend(QObject):
     purchaseChanged, purchase = qprop(bool, "purchase")
     loginOpenChanged, loginOpen = qprop(bool, "loginOpen")
     loginNoteChanged, loginNote = qprop(str, "loginNote")
+    loginNeedsCodeChanged, loginNeedsCode = qprop(bool, "loginNeedsCode")
     askOpenChanged, askOpen = qprop(bool, "askOpen")
     askTitleChanged, askTitle = qprop(str, "askTitle")
     askPromptChanged, askPrompt = qprop(str, "askPrompt")
@@ -126,6 +127,7 @@ class Backend(QObject):
         self._purchase = False
         self._loginOpen = False
         self._loginNote = ""
+        self._loginNeedsCode = False
         self._askOpen = False
         self._askTitle = ""
         self._askPrompt = ""
@@ -372,6 +374,9 @@ class Backend(QObject):
         self.categoriesChanged.emit()
 
     def _run(self, fn, done=None):
+        # Один Event на задачу: stop() не должен подменять его, иначе «Остановить» не доходит до потока.
+        self._stop.clear()
+
         def wrap():
             result, error = None, None
             try:
@@ -383,12 +388,18 @@ class Backend(QObject):
                 error = exc
 
             def finish():
-                if done:
-                    done(result, error)
+                try:
+                    if done:
+                        done(result, error)
+                except Exception as exc:  # noqa: BLE001
+                    self.log(f"ошибка после операции: {exc}")
+                    self.show_notice("Ошибка", str(exc)[:400])
                 self.busy = False
                 self.taskFinished.emit()
 
-            QTimer.singleShot(0, finish)
+            # Без объекта-контекста QTimer из рабочего потока не срабатывает
+            # (в том потоке нет цикла событий) — кнопка «Входим…» зависала навсегда.
+            QTimer.singleShot(0, self, finish)
 
         self.busy = True
         thread = threading.Thread(target=wrap, daemon=True)
@@ -474,18 +485,36 @@ class Backend(QObject):
         self._run(self._probe_device, self._on_device)
 
     @Slot()
+    @Slot(str)
     def openLogin(self, note=""):
+        self.loginNeedsCode = False
         self.loginNote = note or "Войдите в Apple ID, с которого покупали приложения."
         self.loginOpen = True
 
+    @Slot()
+    def closeLogin(self):
+        self.loginOpen = False
+        self.loginNeedsCode = False
+
     @Slot(str, str)
-    def login(self, email, password):
+    @Slot(str, str, str)
+    def login(self, email, password, auth_code=""):
         email = (email or "").strip()
         if not email or not password:
             self.show_notice("Вход", "Введите адрес и пароль Apple ID")
             return
+        if self.loginNeedsCode and not (auth_code or "").strip():
+            self.show_notice("Вход", "Введите код подтверждения, который прислала Apple.")
+            return
         self._pending_login = {"email": email, "password": password}
-        self._do_login(None)
+        try:
+            self._store_client()
+        except Exception as exc:  # noqa: BLE001
+            self.log(str(exc))
+            self.show_notice("Вход", str(exc)[:400])
+            return
+        self.log("Запускаю вход в Apple ID…")
+        self._do_login((auth_code or "").strip() or None)
 
     def _do_login(self, code):
         pending = self._pending_login or {}
@@ -495,12 +524,12 @@ class Backend(QObject):
 
         def done(result, error):
             if error and isinstance(error, StoreError) and error.needs_2fa:
-                self._ask_kind = "2fa"
-                self.askTitle = "Код проверки"
-                self.askPrompt = "Введите код, который прислала Apple."
-                self.askOpen = True
+                self.loginNeedsCode = True
+                self.loginNote = "Apple прислала код подтверждения. Введите его в поле ниже."
+                self.log("Нужен код подтверждения Apple.")
                 return
             self._pending_login = None
+            self.loginNeedsCode = False
             if error:
                 self.log(str(error))
                 self.show_notice("Вход", str(error))
@@ -509,7 +538,7 @@ class Backend(QObject):
             self.loggedIn = True
             self.account = email
             self.loginOpen = False
-            self.log(f"Вход выполнен: {email}")
+            self.log("Вход выполнен")
 
         self._run(work, done)
 
@@ -624,8 +653,9 @@ class Backend(QObject):
     @Slot()
     def stop(self):
         self._stop.set()
+        if self._store is not None:
+            self._store.cancel()
         self.log("Остановка запрошена")
-        self._stop = threading.Event()
 
     @Slot(str, int)
     def toggleSelected(self, list_name, row):
@@ -960,7 +990,11 @@ class Backend(QObject):
 
     @Slot()
     def open_log(self):
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.log_path())))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.app_log_path())))
+
+    @Slot()
+    def openLogsFolder(self):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.logs_dir())))
 
     @Slot(result=str)
     def helpText(self):
@@ -975,13 +1009,15 @@ class Backend(QObject):
             "а ключ к ней — в Windows Credential Manager или в файле, защищённом DPAPI.\n\n"
             "Обновления берутся только с GitHub Releases, файл сверяется по SHA-256. "
             "Если что-то пойдёт не так, в «Настройки → О программе» можно вернуть предыдущую копию.\n\n"
-            f"Журнал: {paths.log_path()}\n"
-            f"Журнал запуска: %LOCALAPPDATA%\\RestoreAppStore\\startup.log"
+            "Журналы: %LOCALAPPDATA%\\RestoreAppStore\\app.log и startup.log. "
+            "Папку можно открыть в «Настройки → О программе»."
         )
 
     @Slot()
     def shutdown(self):
         self._stop.set()
+        if self._store is not None:
+            self._store.cancel()
         self._persist()
 
     def seed_demo(self) -> None:

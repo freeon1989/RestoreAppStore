@@ -7,12 +7,13 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from . import paths
 
 _TWO_FACTOR = re.compile(
-    r"auth-?code|two[-\s]?factor|2fa|verification code|код подтверждения|код проверки",
+    r"auth-?code|two[-\s]?factor|2fa|2fv|verification code|enter 2fa|trusted device|код подтверждения|код проверки",
     re.I,
 )
 _JSON_LINE = re.compile(r"(\{.*\}|\[.*\])", re.S)
@@ -50,11 +51,21 @@ class Store:
     def __init__(self, exe: Path | None = None, passphrase: str | None = None):
         self.exe = Path(exe) if exe else paths.find_ipatool()
         self.passphrase = passphrase or ""
+        self._proc = None
+        self._proc_lock = threading.Lock()
 
     def available(self) -> bool:
         return bool(self.exe and self.exe.is_file())
 
-    def run(self, args: list[str], *, timeout: int = 180, stdin: str | None = None) -> dict | str:
+    def cancel(self) -> None:
+        """Остановить текущий процесс ipatool-cpp, если он ещё идёт."""
+        with self._proc_lock:
+            proc = self._proc
+        if proc is not None and proc.poll() is None:
+            _kill_process(proc)
+
+    def run(self, args: list[str], *, timeout: int = 180, stdin: str | None = None,
+            stop_on_2fa: bool = False) -> dict | str:
         if not self.available():
             raise StoreError("Не найден ipatool-cpp. Положите его рядом с программой.")
         cmd = [str(self.exe), "--format", "json"]
@@ -71,32 +82,114 @@ class Store:
             env["HOMEPATH"] = tail or "\\"
             env["LOCALAPPDATA"] = str(home / "AppData" / "Local")
             env["APPDATA"] = str(home / "AppData" / "Roaming")
+        paths.write_app_log("ipatool: " + " ".join(public_command(cmd)))
+        kwargs = dict(
+            args=cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE,
+            bufsize=0,
+            env=env,
+            cwd=str(home),
+        )
+        if sys.platform == "win32":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         try:
-            proc = subprocess.run(
-                cmd,
-                input=stdin,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-                cwd=str(home),
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise StoreError("ipatool-cpp не ответил вовремя") from exc
+            proc = subprocess.Popen(**kwargs)
         except OSError as exc:
+            paths.write_app_log(f"ipatool не запустился: {exc}")
             raise StoreError(f"Не удалось запустить ipatool-cpp: {exc}") from exc
-        out = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr else "")
-        if proc.returncode != 0:
-            message = _public_message(proc.stdout, proc.stderr) or f"ipatool-cpp завершился с кодом {proc.returncode}"
-            raise StoreError(message, needs_2fa=_looks_like_2fa(out), code=proc.returncode)
-        parsed = _parse_json(proc.stdout)
-        return parsed if parsed is not None else (proc.stdout or "").strip()
+        with self._proc_lock:
+            self._proc = proc
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+        flagged = threading.Event()
+
+        def reader(stream, bucket):
+            # бинарные куски: ipatool пишет «Enter 2FA code: » без перевода строки
+            buf: list[str] = []
+            try:
+                while True:
+                    chunk = stream.read(64)
+                    if not chunk:
+                        break
+                    buf.append(chunk.decode("utf-8", errors="replace"))
+                    text = "".join(buf)
+                    if stop_on_2fa and _looks_like_2fa(text):
+                        bucket.append(text)
+                        buf.clear()
+                        flagged.set()
+                        _kill_process(proc)
+                    elif "\n" in text:
+                        bucket.append(text)
+                        buf.clear()
+            except OSError:
+                pass
+            if buf:
+                bucket.append("".join(buf))
+
+        threads = [
+            threading.Thread(target=reader, args=(proc.stdout, stdout_parts), daemon=True),
+            threading.Thread(target=reader, args=(proc.stderr, stderr_parts), daemon=True),
+        ]
+        for thread in threads:
+            thread.start()
+        timed_out = False
+        try:
+            if stdin is not None and proc.stdin:
+                try:
+                    payload = stdin if isinstance(stdin, (bytes, bytearray)) else str(stdin).encode("utf-8")
+                    proc.stdin.write(payload)
+                    proc.stdin.close()
+                except OSError:
+                    pass
+            timed_out = False
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _kill_process(proc)
+                proc.wait(timeout=5)
+                timed_out = True
+                paths.write_app_log(f"ipatool не ответил за {timeout} с, процесс остановлен")
+        finally:
+            for thread in threads:
+                thread.join(timeout=2)
+            for stream in (proc.stdout, proc.stderr, proc.stdin):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            with self._proc_lock:
+                if self._proc is proc:
+                    self._proc = None
+        stdout = "".join(stdout_parts)
+        stderr = "".join(stderr_parts)
+        code = proc.returncode if proc.returncode is not None else -1
+        public_err = redact_text(stderr)[:800].replace("\n", " | ")
+        paths.write_app_log(f"ipatool код={code}" + (f" stderr: {public_err}" if public_err else ""))
+        combined = stdout + (("\n" + stderr) if stderr else "")
+        if stop_on_2fa and (flagged.is_set() or _looks_like_2fa(combined)):
+            raise StoreError(
+                "Нужен код подтверждения, который Apple прислала на ваши устройства.",
+                needs_2fa=True,
+                code=code,
+            )
+        if timed_out:
+            raise StoreError(
+                f"Операция не завершилась за {timeout} с. Проверьте сеть и откройте журнал, если ошибка повторится."
+            )
+        if code != 0:
+            message = _public_message(stdout, stderr) or f"ipatool-cpp завершился с кодом {code}"
+            raise StoreError(message, needs_2fa=_looks_like_2fa(combined), code=code)
+        parsed = _parse_json(stdout)
+        return parsed if parsed is not None else (stdout or "").strip()
 
     def login(self, email: str, password: str, auth_code: str | None = None) -> dict:
         args = ["auth", "login", "-e", email, "-p", password]
         if auth_code:
             args += ["--auth-code", auth_code]
-        result = self.run(args, timeout=120)
+        result = self.run(args, timeout=60, stop_on_2fa=not auth_code)
         return result if isinstance(result, dict) else {"success": True, "email": email}
 
     def info(self) -> dict | None:
@@ -244,6 +337,56 @@ def _normalize_app(item: dict) -> dict:
         "icon": str(item.get("artworkUrl100") or item.get("icon") or ""),
         "raw": item,
     }
+
+
+
+
+_SECRET_FLAGS = {
+    "-p", "--password", "-e", "--email", "-a", "--auth-code", "--keychain-passphrase",
+}
+
+
+def public_command(cmd: list[str]) -> list[str]:
+    """Аргументы для журнала: пароль, код и адрес заменены на ***."""
+    out: list[str] = []
+    hide = False
+    for item in cmd:
+        if hide:
+            out.append("***")
+            hide = False
+            continue
+        name, _, value = item.partition("=")
+        flag = name.lower()
+        if flag in _SECRET_FLAGS or flag.split("/")[-1] in {s.lstrip("-") for s in _SECRET_FLAGS}:
+            if value:
+                out.append(f"{name}=***")
+            else:
+                out.append(item)
+                hide = True
+            continue
+        # не пишем путь с домашней папкой пользователя
+        out.append(Path(item).name if (item.endswith(".exe") and "\\" in item or "/" in item and item.endswith(".exe")) else item)
+    return out
+
+
+def redact_text(text: str) -> str:
+    """Убрать из текста пароли, коды и похожие секреты перед записью в журнал."""
+    cleaned = text or ""
+    cleaned = re.sub(r"(?i)(password|passphrase|auth-?code|token|authorization)\s*[=:]\s*\S+", r"\1=***", cleaned)
+    cleaned = re.sub(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "***@***", cleaned)
+    return cleaned
+
+
+def _kill_process(proc) -> None:
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    except OSError:
+        pass
 
 
 def _looks_like_2fa(text: str) -> bool:

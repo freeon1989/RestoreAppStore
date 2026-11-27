@@ -18,7 +18,7 @@ Item {
         id: login
         width: 440
         // email тоже не держим: после «Выйти» поле пустое (на диск программа его не пишет)
-        onClosed: { email.text = ""; password.text = ""; backend.loginOpen = false }
+        onClosed: { email.text = ""; password.text = ""; authCode.text = ""; backend.closeLogin() }
         onOpened: email.forceActiveFocus()
 
         Logo { size: 56; Layout.alignment: Qt.AlignHCenter }
@@ -31,12 +31,21 @@ Item {
             Layout.fillWidth: true
             spacing: 6
             Field { id: password; placeholderText: "Пароль"; echoMode: showPw.checked ? TextInput.Normal : TextInput.Password
-                    onAccepted: backend.login(email.text, password.text) }
+                    onAccepted: authCode.visible ? authCode.forceActiveFocus() : backend.login(email.text, password.text, authCode.text) }
             Btn { id: showPw; checkable: true; text: checked ? "Скрыть" : "Показать"; kind: "ghost"; lock: false
                   implicitHeight: 46 }
         }
-        Btn { text: backend.busy ? "Входим…" : "Войти"; kind: "primary"; implicitHeight: 48; Layout.fillWidth: true
-              onClicked: backend.login(email.text, password.text) }
+        Field {
+            id: authCode
+            visible: backend.loginNeedsCode
+            placeholderText: "Код подтверждения с устройства Apple"
+            inputMethodHints: Qt.ImhDigitsOnly
+            onVisibleChanged: if (visible) authCode.forceActiveFocus()
+            onAccepted: backend.login(email.text, password.text, authCode.text)
+        }
+        Btn { text: backend.busy ? "Входим…" : (backend.loginNeedsCode ? "Продолжить" : "Войти")
+              kind: "primary"; implicitHeight: 48; Layout.fillWidth: true
+              onClicked: backend.login(email.text, password.text, authCode.text) }
         Text { text: "ipatool-cpp временно хранит данные входа, включая пароль, в зашифрованной сессии. "
                      + "Сессия удаляется при выходе и закрытии программы. Код подтверждения придёт на устройства Apple."
                color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13; wrapMode: Text.WordWrap

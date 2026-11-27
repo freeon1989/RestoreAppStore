@@ -115,7 +115,7 @@ a = Analysis(
 # Интерфейсу нужны только QtQuick, Controls (стиль Basic), Layouts и Effects — остальное вырезаем.
 # Если что-то нужное пропало, сборку остановит проверка `RestoreAppStore.exe --check-ui` в build.ps1.
 DROP = re.compile(
-    r"webengine|webview|webchannel|websockets|qt6?pdf|quick3d|qt3d|/3d|multimedia|spatialaudio|charts|datavis"
+    r"webengine|webview|webchannel|websockets|qt6?pdf|qpdf|quick3d|qt3d|/3d|multimedia|spatialaudio|charts|datavis"
     r"|graphs|location|positioning|sensors|serialport|serialbus|bluetooth|nfc|remoteobjects|scxml|statemachine"
     r"|texttospeech|virtualkeyboard|designer|qt6?help|qt6?sql|qt6?test|opengl32sw|qtopengl|openglwidgets"
     r"|shadertools|httpserver|svgwidgets|uitools|lottie|bodymovin|particles|timeline|qtquick/dialogs|/labs/"

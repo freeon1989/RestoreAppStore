@@ -51,7 +51,45 @@ class UiTests(unittest.TestCase):
         self.assertEqual(gui.check_ui(str(report)), 0)
         self.assertTrue(report.read_text(encoding="utf-8").startswith("OK"))
 
+    def test_run_resets_busy(self):
+        """QTimer из рабочего потока должен вернуть управление в GUI-поток."""
+        from PySide6.QtCore import QEventLoop, QTimer
+        engine, backend = gui.create(self.app, background=False, visible=False)
+        self.assertTrue(engine.rootObjects())
+        done = []
+
+        def work():
+            return 42
+
+        def after(result, error):
+            done.append((result, error))
+
+        backend._run(work, after)
+        loop = QEventLoop()
+        QTimer.singleShot(2000, loop.quit)
+        # ждём, пока busy станет False, но не дольше 2 с
+        def tick():
+            if not backend.busy and done:
+                loop.quit()
+            else:
+                QTimer.singleShot(20, tick)
+        QTimer.singleShot(20, tick)
+        loop.exec()
+        self.assertFalse(backend.busy)
+        self.assertEqual(done, [(42, None)])
+
+    def test_open_login_slot(self):
+        engine, backend = gui.create(self.app, background=False, visible=False)
+        backend.openLogin()
+        self.assertTrue(backend.loginOpen)
+        backend.openLogin("подсказка")
+        self.assertEqual(backend.loginNote, "подсказка")
+        backend.closeLogin()
+        self.assertFalse(backend.loginOpen)
+        self.assertFalse(backend.loginNeedsCode)
+
     def test_heroine_assets(self):
+
         for key in ("mira", "nora", "liora", "vera", "kira"):
             for dark in (False, True):
                 url = theme.heroine_url(key, dark)

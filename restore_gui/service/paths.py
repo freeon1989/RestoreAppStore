@@ -114,5 +114,36 @@ def file_url(path: Path | None) -> str:
     return path.resolve().as_uri()
 
 
+def logs_dir() -> Path:
+    """Журналы запуска и работы: %LOCALAPPDATA%\\RestoreAppStore."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        base = Path(os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_DATA_HOME")
+                    or Path.home() / ".local" / "share")
+    path = base / "RestoreAppStore"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def app_log_path() -> Path:
+    return logs_dir() / "app.log"
+
+
+def write_app_log(text: str) -> None:
+    """Строка в app.log. Вызывающий уже убрал пароли и коды."""
+    line = (text or "").rstrip()
+    if not line:
+        return
+    from datetime import datetime, timezone, timedelta
+    stamp = datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with app_log_path().open("a", encoding="utf-8") as fh:
+            fh.write(f"{stamp} {line}\n")
+    except OSError:
+        pass
+
+
 def log_path() -> Path:
-    return data_dir() / "restore.log"
+    """Прежний путь оставлен для совместимости; новый журнал — app_log_path()."""
+    return app_log_path()

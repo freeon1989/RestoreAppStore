@@ -109,7 +109,7 @@ Rectangle {
             visible: !backend.loggedIn
             Layout.fillWidth: true
             text: "Войти в Apple ID"; kind: "primary"; lock: false; implicitHeight: 38
-            onClicked: backend.openLogin("")
+            onClicked: backend.openLogin()
         }
         ColumnLayout {
             visible: backend.loggedIn

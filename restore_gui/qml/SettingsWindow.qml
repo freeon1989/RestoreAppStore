@@ -300,6 +300,12 @@ Popup {
 
                         Group {
                             Row2 {
+                                title: "Журналы"
+                                sub: "app.log и startup.log в папке %LOCALAPPDATA%\\RestoreAppStore. Пароли и коды туда не пишутся."
+                                Btn { text: "Открыть папку журналов"; kind: "ghost"; lock: false; implicitHeight: 34
+                                      onClicked: backend.openLogsFolder() }
+                            }
+                            Row2 {
                                 last: true
                                 title: "Устройства Apple"
                                 sub: "Официальное приложение Apple из Microsoft Store. Без него Windows обычно не видит iPhone по кабелю. Затем подключите кабель и на телефоне нажмите «Доверять»."

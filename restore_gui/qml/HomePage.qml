@@ -33,7 +33,7 @@ ColumnLayout {
             done: backend.loggedIn
             title: "Apple ID"
             sub: backend.loggedIn ? backend.account : "войдите в аккаунт, где были приложения"
-            onClicked: backend.openLogin("")
+            onClicked: backend.openLogin()
         }
         Step {
             number: 2

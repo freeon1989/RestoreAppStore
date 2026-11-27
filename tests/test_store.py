@@ -153,3 +153,72 @@ class HeroineOrbTests(unittest.TestCase):
                 os.environ.pop("QML_REDUCE_MOTION", None)
             else:
                 os.environ["QML_REDUCE_MOTION"] = old
+
+
+from restore_gui.service.store import public_command, redact_text, _looks_like_2fa, Store, StoreError  # noqa: E402
+
+
+class CommandRedactTests(unittest.TestCase):
+    def test_hides_secrets(self):
+        cmd = ["ipatool-cpp.exe", "--format", "json", "--keychain-passphrase", "s3cret",
+               "auth", "login", "-e", "user@example.com", "-p", "hunter2", "--auth-code", "123456"]
+        public = public_command(cmd)
+        joined = " ".join(public)
+        self.assertNotIn("s3cret", joined)
+        self.assertNotIn("hunter2", joined)
+        self.assertNotIn("123456", joined)
+        self.assertNotIn("user@example.com", joined)
+        self.assertIn("***", joined)
+        self.assertIn("login", joined)
+
+    def test_redact_text(self):
+        text = "password=hunter2 token: abc email me@example.com"
+        out = redact_text(text)
+        self.assertNotIn("hunter2", out)
+        self.assertNotIn("me@example.com", out)
+        self.assertIn("***", out)
+
+    def test_2fa_prompt(self):
+        self.assertTrue(_looks_like_2fa("Enter 2FA code: "))
+        self.assertTrue(_looks_like_2fa("Need an auth-code"))
+        self.assertFalse(_looks_like_2fa("login failed: invalid password"))
+
+
+import time
+import textwrap
+
+
+class StoreRunTests(unittest.TestCase):
+    def _script(self, body: str) -> Path:
+        folder = Path(tempfile.mkdtemp())
+        path = folder / "fake-ipatool"
+        path.write_text("#!/usr/bin/env python3\n" + textwrap.dedent(body), encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def test_stop_on_2fa_prompt(self):
+        script = self._script("""
+            import sys, time
+            sys.stderr.write("Enter 2FA code: \\n")
+            sys.stderr.flush()
+            time.sleep(30)
+            sys.exit(1)
+        """)
+        store = Store(exe=script, passphrase="")
+        start = time.time()
+        with self.assertRaises(StoreError) as ctx:
+            store.run(["auth", "login", "-e", "x", "-p", "y"], timeout=10, stop_on_2fa=True)
+        self.assertTrue(ctx.exception.needs_2fa)
+        self.assertLess(time.time() - start, 8)
+
+    def test_timeout_stops_process(self):
+        script = self._script("""
+            import time
+            time.sleep(30)
+        """)
+        store = Store(exe=script, passphrase="")
+        start = time.time()
+        with self.assertRaises(StoreError) as ctx:
+            store.run(["x"], timeout=1)
+        self.assertIn("1 с", str(ctx.exception))
+        self.assertLess(time.time() - start, 8)
