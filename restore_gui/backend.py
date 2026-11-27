@@ -61,7 +61,7 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
         "versionHead": "Версия", "versionMode": "loading", "detailErr": "", "detailAnswer": "", "moreText": "",
         "actionsEnabled": False, "selectedVersion": "",
         # настройки (prefs.py)
-        "themeMode": "system", "accentName": "emerald", "ipaDir": "", "deleteAfterInstall": False,
+        "themeMode": "system", "accentName": "emerald", "heroineName": "mira", "ipaDir": "", "deleteAfterInstall": False,
         "notifyDone": True, "ipaSummary": "", "updateText": "", "updateUrl": "",
         "autoUpdate": True, "skipVersion": "", "updateOpen": False, "updateVersion": "", "updateNotes": "",
         "paletteSerial": 0,
@@ -100,6 +100,7 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
     selectedVersionChanged, selectedVersion = qprop(str, "selectedVersion")
     themeModeChanged, themeMode = qprop(str, "themeMode")  # system / light / dark
     accentNameChanged, accentName = qprop(str, "accentName")  # ключ theme.ACCENTS
+    heroineNameChanged, heroineName = qprop(str, "heroineName")  # ключ theme.HEROINES, off — без фона
     ipaDirChanged, ipaDir = qprop(str, "ipaDir")
     deleteAfterInstallChanged, deleteAfterInstall = qprop(bool, "deleteAfterInstall")
     notifyDoneChanged, notifyDone = qprop(bool, "notifyDone")
@@ -121,6 +122,35 @@ class Backend(QObject, TasksMixin, DetailMixin, PrefsMixin):
     @Property(QObject, constant=True)
     def pal(self):
         return self._pal
+
+    @Property("QVariantList", constant=True)
+    def heroines(self):
+        """Список героинь для настроек: ключ, название, картинка."""
+        import restore_apps as core
+        from PySide6.QtCore import QUrl
+        items = []
+        for key, meta in theme.HEROINES.items():
+            url = ""
+            if meta.get("file"):
+                for base in (core.BUNDLE, core.HERE, core.HERE / "assets"):
+                    pth = base / "heroines" / meta["file"]
+                    if not pth.is_file() and base.name != "assets":
+                        pth = base / "assets" / "heroines" / meta["file"]
+                    if pth.is_file():
+                        url = QUrl.fromLocalFile(str(pth)).toString()
+                        break
+            items.append({"key": key, "title": meta["title"], "url": url, "accent": meta.get("accent", "")})
+        return items
+
+    @Property(str, notify=heroineNameChanged)
+    def heroineUrl(self):
+        if self._heroineName in ("", "off"):
+            return ""
+        for item in self.heroines:
+            if item["key"] == self._heroineName:
+                return item["url"]
+        return ""
+
     taskFinished = Signal()  # долгая операция закончилась — окно мигнёт на панели задач, если не в фокусе
     _posted = Signal(object)
 

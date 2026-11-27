@@ -32,18 +32,22 @@ RestoreAppStore — самостоятельная программа для 64-
 
 [exe, без установки](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.exe)
 · [страница последнего релиза](https://github.com/freeon1989/RestoreAppStore/releases/latest)
-· [SHA-256](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.exe.sha256)
+· [папка без распаковки в память: zip](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.zip)
+· [SHA-256 exe](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.exe.sha256)
+· [SHA-256 zip](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.zip.sha256)
 
-Актуальная версия интерфейса: **1.3.0**. Нужна **64-битная Windows 10 или 11**.
+Актуальная версия: **1.3.1**. Нужна **64-битная Windows 10 или 11**.
 
-Запустите скачанный `RestoreAppStore-win-x64.exe`. Сборка не подписана цифровым сертификатом, поэтому Windows SmartScreen может показать предупреждение «Windows защитила ваш компьютер». Нажмите «Подробнее» → «Выполнить в любом случае».
+Запустите скачанный `RestoreAppStore-win-x64.exe` либо распакуйте `RestoreAppStore-win-x64.zip` и откройте `RestoreAppStore\RestoreAppStore.exe`. Сборка не подписана цифровым сертификатом, поэтому Windows SmartScreen может показать предупреждение «Windows защитила ваш компьютер». Нажмите «Подробнее» → «Выполнить в любом случае».
+
+Если окно не откроется, пришлите файл `%LOCALAPPDATA%\RestoreAppStore\startup.log` (это журнал запуска, не настройки и не пароль).
 
 Если уже стоит предыдущая версия, в программе откройте «Настройки → О программе → Проверить обновления».
 
-SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 1.3.0):
+SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 1.3.1):
 
 ```
-4586a58fa0e1e50d2453e2508ad03cd3b757c40131b60400cc6a1784eec3b452
+0663b24e7ba8b7570067e5a7659ae4e3c89fceb8264c7dc3fd4a521721987f14
 ```
 
 В PowerShell проверка такая:
@@ -52,9 +56,16 @@ SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 1.3.0):
 Get-FileHash .\RestoreAppStore-win-x64.exe -Algorithm SHA256
 ```
 
+SHA-256 архива `RestoreAppStore-win-x64.zip` (версия 1.3.1):
+
+```
+a9efcde28f0e79aa7b17b6efdd07588b533e56d2da277f647d0dd6079cfa08d3
+```
+
+
 ## Скриншоты
 
-Снимки сняты в демонстрационном режиме (учётная запись `demo@example.com`, устройство «iPhone (демо)»). Это не настоящий Apple ID и не подключённый телефон.
+Снимки сняты в демонстрационном режиме (учётная запись `demo@example.com`, устройство «iPhone (демо)», на фоне героиня Мира). Это не настоящий Apple ID и не подключённый телефон.
 
 Главный экран (светлая тема, оформление Ink):
 
@@ -99,6 +110,7 @@ Get-FileHash .\RestoreAppStore-win-x64.exe -Algorithm SHA256
 - Выбор версии или режим «Автоматически» — новейшая версия, подходящая для iOS вашего iPhone.
 - «Только скачать IPA» или «Скачать и установить» по кабелю, в том числе несколько приложений по очереди. Готовый `.ipa` можно поставить и без повторного входа в Apple ID.
 - Светлая и тёмная тема (или как в системе) и четыре цвета акцента: терракота, чернила, яшма, охра.
+- Героиня на фоне (Мира, Нора, Лиора, Вера, Кира) — в настройках оформления можно сменить или выключить.
 - Проверка обновлений с GitHub: «Настройки → О программе».
 - Понятные сообщения об ошибках по-русски и журнал внизу окна.
 

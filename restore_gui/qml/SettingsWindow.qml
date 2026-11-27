@@ -10,7 +10,7 @@ Popup {
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(780, parent.width - 60)
-    height: Math.min(540, parent.height - 60)
+    height: Math.min(640, parent.height - 48)
     modal: true
     popupType: Popup.Item
     focus: true
@@ -120,6 +120,61 @@ Popup {
                             Repeater {
                                 model: backend.accents
                                 delegate: Swatch { required property var modelData; info: modelData }
+                            }
+                        }
+                        Label2 { text: "Героиня на фоне"; Layout.topMargin: 10 }
+                        Text {
+                            text: "Справа на фоне, в спокойном стиле. Можно выключить."
+                            color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
+                            wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Repeater {
+                                model: backend.heroines
+                                delegate: Rectangle {
+                                    id: hcard
+                                    required property var modelData
+                                    readonly property bool on: backend.heroineName === modelData.key
+                                    width: 70; height: 112
+                                    radius: 16
+                                    color: on ? backend.pal.accentSoft : (hHover.hovered ? backend.pal.secondHover : backend.pal.second)
+                                    border.color: on ? backend.pal.accent : backend.pal.border
+                                    border.width: on ? 2 : 1
+                                    clip: true
+                                    Column {
+                                        anchors.fill: parent; anchors.margins: 6; spacing: 4
+                                        Rectangle {
+                                            width: parent.width; height: 70; radius: 10
+                                            color: backend.pal.bg
+                                            clip: true
+                                            Image {
+                                                visible: hcard.modelData.url !== ""
+                                                anchors.fill: parent
+                                                fillMode: Image.PreserveAspectCrop
+                                                source: hcard.modelData.url
+                                                asynchronous: true
+                                            }
+                                            Text {
+                                                visible: hcard.modelData.url === ""
+                                                anchors.centerIn: parent
+                                                text: "✕"
+                                                color: backend.pal.muted
+                                                font.pixelSize: 20
+                                            }
+                                        }
+                                        Text {
+                                            text: hcard.modelData.title
+                                            color: hcard.on ? backend.pal.accentText : backend.pal.text
+                                            font.family: backend.pal.font; font.pixelSize: 12
+                                            font.weight: hcard.on ? Font.DemiBold : Font.Medium
+                                            width: parent.width; elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter
+                                        }
+                                    }
+                                    HoverHandler { id: hHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler { onTapped: backend.heroineName = hcard.modelData.key }
+                                }
                             }
                         }
                     }

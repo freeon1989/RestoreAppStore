@@ -10,42 +10,48 @@ AVATARS = ("#C4452D", "#3B4C8A", "#8A5A32", "#5A6B3A", "#6B4C6F", "#2F6F62", "#8
 VERSIONS_PAGE = 15
 
 LIGHT = {
-    "bg": "#F3EEE6",
-    "topbar": "#EBE4D8",
-    "card": "#FFFBF6",
-    "cardHover": "#F4EDE3",
-    "field": "#FFFBF6",
-    "second": "#EDE6DB",
-    "secondHover": "#E3DACD",
-    "rail": "#EBE4D8",
-    "border": "#E0D6C8",
-    "borderLight": "#C9BDAE",
-    "shade": "#661C1814",
-    "text": "#1C1814",
-    "muted": "#6B6258",
-    "disabled": "#A89F94",
-    "logText": "#4A453E",
+    "bg": "#F5F5F7",
+    "bgAlt": "#EFEFF4",
+    "bgFade": "#CCF5F5F7",
+    "bgClear": "#00F5F5F7",
+    "topbar": "#F0F0F5",
+    "card": "#FFFFFF",
+    "cardHover": "#F2F2F7",
+    "field": "#FFFFFF",
+    "second": "#E8E8ED",
+    "secondHover": "#DEDEE5",
+    "rail": "#F0F0F5",
+    "border": "#E5E5EA",
+    "borderLight": "#D2D2D7",
+    "shade": "#66000000",
+    "text": "#1D1D1F",
+    "muted": "#6E6E73",
+    "disabled": "#A1A1A6",
+    "logText": "#3A3A3C",
     "ok": "#2F7D4A", "okBg": "#E3F0E6", "okDim": "#B5D4BE",
     "warn": "#A86A16", "warnDim": "#F3E1C0",
     "danger": "#B42318", "dangerBg": "#F8E4E1",
 }
 
 DARK = {
-    "bg": "#161311",
-    "topbar": "#1C1916",
-    "card": "#221E1A",
-    "cardHover": "#2C2722",
-    "field": "#221E1A",
-    "second": "#2A2622",
-    "secondHover": "#35302B",
-    "rail": "#1C1916",
-    "border": "#3A342E",
-    "borderLight": "#524A43",
+    "bg": "#1C1C1E",
+    "bgAlt": "#000000",
+    "bgFade": "#CC1C1C1E",
+    "bgClear": "#001C1C1E",
+    "topbar": "#1C1C1E",
+    "card": "#2C2C2E",
+    "cardHover": "#3A3A3C",
+    "field": "#2C2C2E",
+    "second": "#3A3A3C",
+    "secondHover": "#48484A",
+    "rail": "#1C1C1E",
+    "border": "#3A3A3C",
+    "borderLight": "#48484A",
     "shade": "#CC000000",
-    "text": "#F3EEE6",
-    "muted": "#A89F94",
-    "disabled": "#6B635A",
-    "logText": "#D4CDBF",
+    "text": "#F5F5F7",
+    "muted": "#A1A1A6",
+    "disabled": "#6E6E73",
+    "logText": "#D1D1D6",
     "ok": "#6FBF86", "okBg": "#1C3324", "okDim": "#2A4A34",
     "warn": "#E0A857", "warnDim": "#3F3018",
     "danger": "#E07068", "dangerBg": "#3A1E1C",
@@ -75,6 +81,18 @@ ACCENTS = {
                "accentSoft": "#32240E", "grad1": "#E0A04A", "grad2": "#B56A1A"}),
 }
 DEFAULT_ACCENT = "emerald"
+
+# Героини фона: ключи пишутся в settings.json. "off" — без рисунка.
+HEROINES = {
+    "off": {"title": "Нет", "file": ""},
+    "mira": {"title": "Мира", "file": "mira.jpg", "accent": "#1F6B4A"},
+    "nora": {"title": "Нора", "file": "nora.jpg", "accent": "#3B6F9A"},
+    "liora": {"title": "Лиора", "file": "liora.jpg", "accent": "#B56A1A"},
+    "vera": {"title": "Вера", "file": "vera.jpg", "accent": "#6B4C8A"},
+    "kira": {"title": "Кира", "file": "kira.jpg", "accent": "#8A2E3A"},
+}
+DEFAULT_HEROINE = "mira"
+
 
 
 def palette(dark=False, accent=DEFAULT_ACCENT):
@@ -221,6 +239,19 @@ class Palette(QObject):
     @Property(str, notify=changed)
     def grad2(self):
         return str(self._d["grad2"])
+
+
+    @Property(str, notify=changed)
+    def bgAlt(self):
+        return str(self._d["bgAlt"])
+
+    @Property(str, notify=changed)
+    def bgFade(self):
+        return str(self._d["bgFade"])
+
+    @Property(str, notify=changed)
+    def bgClear(self):
+        return str(self._d["bgClear"])
 
     @Property(bool, notify=changed)
     def dark(self):

@@ -18,7 +18,9 @@ MAC = sys.platform == "darwin"  # macOS: всегда Restore.app (папкой)
 RES = "build/res"
 datas = [("removed_ru_appstore_app_ids.csv", "."), ("assets/icon.ico", "."), ("assets/cloudtips_qr.png", "."),
          ("restore_gui/qml", "restore_gui/qml"),  # интерфейс (QML) — рядом с модулями пакета, см. app.QML_DIR
-         ("restore_gui/fonts", "restore_gui/fonts")]  # шрифт Manrope и его лицензия OFL
+         ("restore_gui/fonts", "restore_gui/fonts"),  # шрифт Manrope и его лицензия OFL
+         ("assets/heroines", "heroines"),
+         ("assets/qt.conf", ".")]
 if MAC:
     binaries = [(f"{RES}/ipatool", ".")]  # Unicorn ipatool нужен только на Windows
 else:
@@ -36,6 +38,48 @@ for name in ("icu.dll", "icuuc.dll", "icuin.dll"):
 icu_lic = Path("licenses/LICENSE-ICU.txt")
 if icu_lic.is_file():
     datas.append((str(icu_lic), "."))
+
+def _pyside_root():
+    import PySide6
+    return Path(PySide6.__file__).resolve().parent
+
+def _collect_qt_plugins():
+    """Явно кладём platforms/qwindows.dll и соседние плагины: хук PyInstaller под Wine
+    их иногда не видит, и тогда Windows пишет «no Qt platform plugin»."""
+    plugins = _pyside_root() / "plugins"
+    qwin = plugins / "platforms" / "qwindows.dll"
+    if not qwin.is_file():
+        raise SystemExit(f"нет платформенного плагина: {qwin}")
+    wanted = {
+        "platforms": {"qwindows.dll", "qminimal.dll", "qoffscreen.dll", "qdirect2d.dll"},
+        "imageformats": None,
+        "iconengines": None,
+        "styles": None,
+        "tls": None,
+        "networkinformation": None,
+    }
+    found = []
+    for group, names in wanted.items():
+        folder = plugins / group
+        if not folder.is_dir():
+            continue
+        for item in folder.iterdir():
+            if not item.is_file():
+                continue
+            if names is not None and item.name.lower() not in names:
+                continue
+            found.append((str(item), str(Path("PySide6") / "plugins" / group)))
+    if not any("qwindows" in src.replace("\\", "/").lower() for src, _dst in found):
+        raise SystemExit("qwindows.dll не собран в список плагинов")
+    return found
+
+def _collect_qml_imports():
+    qml = _pyside_root() / "qml"
+    return [(str(qml), "PySide6/qml")] if qml.is_dir() else []
+
+binaries += _collect_qt_plugins()
+datas += _collect_qml_imports()
+
 # segno — QR-код в «Поддержать», если нет картинки; модули Qt ниже нужны QML и импортируются не из Python
 hiddenimports = ["restore_apps", "segno", "PySide6.QtQuick", "PySide6.QtQuickControls2"]
 # pymobiledevice3 встроен для режима `exe --pmd` (установка IPA); подмодули он грузит динамически.
@@ -96,8 +140,16 @@ def needed(entry):
     return not ("pyside6" in dest and DROP.search(dest))
 
 
+
 a.binaries = [e for e in a.binaries if needed(e)]
 a.datas = [e for e in a.datas if needed(e)]
+
+def _has_qwindows(entries):
+    return any("qwindows" in str(e[0]).replace("\\", "/").lower() for e in entries)
+
+if not _has_qwindows(a.binaries) and not _has_qwindows(a.datas):
+    raise SystemExit("после фильтра qwindows.dll пропал из сборки — останов")
+
 pyz = PYZ(a.pure)
 common = dict(name="RestoreAppStore", icon="assets/icon.ico", version="build/version_info.txt", console=False,
               upx=False)

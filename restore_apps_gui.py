@@ -8,7 +8,13 @@ restore_apps_gui.py — оконная программа Restore (код — в
 
 Скачивание работает только для приложений из истории покупок вашего Apple ID.
 """
+from restore_gui.startup import configure, log, log_exception
 from restore_gui.app import main
 
 if __name__ == "__main__":
-    main()
+    configure()
+    try:
+        main()
+    except Exception as exc:  # noqa: BLE001 — exe без консоли: иначе ошибка старта пропадёт
+        log_exception("fatal in main", exc)
+        raise

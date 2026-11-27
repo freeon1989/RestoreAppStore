@@ -25,6 +25,7 @@ NOTES_LIMIT = 2000  # «Что нового» в окне обновления: 
 SAVED = {
     "themeMode": lambda v: v in ("system", "light", "dark"),
     "accentName": lambda v: v in theme.ACCENTS,
+    "heroineName": lambda v: v in theme.HEROINES,
     "country": lambda v: isinstance(v, str) and len(v) <= 2,
     "onlyRemoved": lambda v: isinstance(v, bool),
     "purchase": lambda v: isinstance(v, bool),

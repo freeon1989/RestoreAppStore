@@ -6,7 +6,7 @@ Button {
     id: b
     property string kind: "second"
     property bool lock: true
-    property real radius: 10
+    property real radius: 12
     enabled: !(lock && backend.busy)
     implicitHeight: 40
     leftPadding: 16; rightPadding: 16

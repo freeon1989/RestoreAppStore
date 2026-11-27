@@ -16,6 +16,34 @@ ApplicationWindow {
     palette.light: backend.pal.card; palette.mid: backend.pal.border; palette.dark: backend.pal.muted; palette.placeholderText: backend.pal.muted
     palette.toolTipBase: backend.pal.card; palette.toolTipText: backend.pal.text
 
+    // Фон в стиле Apple: мягкая заливка и героиня справа, слева текст остаётся читаемым.
+    Rectangle { anchors.fill: parent; color: backend.pal.bg }
+    Image {
+        id: heroine
+        visible: backend.heroineUrl !== ""
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: parent.width * 0.46
+        fillMode: Image.PreserveAspectCrop
+        horizontalAlignment: Image.AlignHCenter
+        verticalAlignment: Image.AlignBottom
+        source: backend.heroineUrl
+        asynchronous: true
+        opacity: backend.pal.dark ? 0.82 : 1
+    }
+    Rectangle {
+        anchors.fill: parent
+        visible: heroine.visible
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.00; color: backend.pal.bg }
+            GradientStop { position: 0.50; color: backend.pal.bg }
+            GradientStop { position: 0.70; color: backend.pal.bgFade }
+            GradientStop { position: 1.00; color: backend.pal.bgClear }
+        }
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 0

@@ -59,7 +59,7 @@ HERE = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resol
 _CSV = "removed_ru_appstore_app_ids.csv"
 # CSV рядом с программой имеет приоритет над встроенным: его можно править
 CATALOG = HERE / _CSV if (HERE / _CSV).exists() else BUNDLE / _CSV
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 APP_NAME = "Restore"  # служебная папка %LOCALAPPDATA%\Restore — не менять, чтобы сохранить данные
 DISPLAY_NAME = "RestoreAppStore"
 
