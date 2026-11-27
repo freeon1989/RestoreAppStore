@@ -54,6 +54,9 @@ class Store:
         self.home = Path(home) if home else None
         self._proc = None
         self._proc_lock = threading.Lock()
+        self._cmd_lock = threading.Lock()
+        self._meta_ok = threading.Event()
+        self._meta_ok.set()
         self._on_output = None
 
     def _tool_home(self) -> Path:
@@ -67,6 +70,16 @@ class Store:
     def available(self) -> bool:
         return bool(self.exe and self.exe.is_file())
 
+    def pause_metadata(self, paused: bool) -> None:
+        """Во время скачивания не дёргать get-version-metadata — одна сессия ipatool."""
+        if paused:
+            self._meta_ok.clear()
+        else:
+            self._meta_ok.set()
+
+    def metadata_allowed(self) -> bool:
+        return self._meta_ok.is_set()
+
     def cancel(self) -> None:
         """Остановить текущий процесс ipatool-cpp, если он ещё идёт."""
         with self._proc_lock:
@@ -78,6 +91,11 @@ class Store:
             stop_on_2fa: bool = False, on_output=None) -> dict | str:
         if not self.available():
             raise StoreError("Не найден ipatool-cpp. Положите его рядом с программой.")
+        with self._cmd_lock:
+            return self._run_locked(args, timeout=timeout, stdin=stdin, stop_on_2fa=stop_on_2fa, on_output=on_output)
+
+    def _run_locked(self, args: list[str], *, timeout: int = 180, stdin: str | None = None,
+                    stop_on_2fa: bool = False, on_output=None) -> dict | str:
         cmd = [str(self.exe), "--format", "json"]
         if self.passphrase:
             cmd += ["--keychain-passphrase", self.passphrase]
@@ -246,10 +264,18 @@ class Store:
                              version_id: str = "") -> dict:
         if not version_id:
             return {}
+        key = f"{app_id or bundle or ''}:{version_id}"
+        cached = _cache_get(key)
+        if cached.get("displayVersion") or cached.get("sub"):
+            return {"displayVersion": cached.get("displayVersion") or "", "sub": cached.get("sub") or "",
+                    "value": version_id, "title": cached.get("displayVersion") or f"Сборка {version_id}"}
         args = ["get-version-metadata"] + _id_flags(app_id, bundle) + ["--external-version-id", str(version_id)]
         result = self.run(args, timeout=60)
         rows = _as_versions(result)
-        return rows[0] if rows else {}
+        row = rows[0] if rows else {}
+        if row:
+            _cache_put(key, {"displayVersion": row.get("displayVersion") or "", "sub": row.get("sub") or ""})
+        return row
 
     def apply_version_cache(self, rows: list[dict], *, app_id: str | None, bundle: str | None) -> list[dict]:
         cache = _load_version_cache()
@@ -264,53 +290,55 @@ class Store:
                 row["sub"] = cached["sub"]
         return rows
 
-    def enrich_versions(self, rows: list[dict], *, app_id: str | None, bundle: str | None) -> list[dict]:
-        return self._enrich_versions(rows, app_id=app_id, bundle=bundle)
+    def enrich_versions(self, rows: list[dict], *, app_id: str | None, bundle: str | None,
+                        should_stop=None) -> list[dict]:
+        return self._enrich_versions(rows, app_id=app_id, bundle=bundle, should_stop=should_stop)
 
-    def _enrich_versions(self, rows: list[dict], *, app_id: str | None, bundle: str | None) -> list[dict]:
-
+    def _enrich_versions(self, rows: list[dict], *, app_id: str | None, bundle: str | None,
+                         should_stop=None) -> list[dict]:
         """Подтянуть название и дату через get-version-metadata, с кэшем на диске."""
-        from restore_gui.service import paths
-        import json
-        cache_path = paths.logs_dir() / "cache" / "versions.json"
-        cache: dict = {}
-        try:
-            if cache_path.is_file():
-                cache = json.loads(cache_path.read_text(encoding="utf-8")) or {}
-        except (OSError, ValueError):
-            cache = {}
         key_prefix = f"{app_id or bundle or ''}:"
-        changed = False
-        for row in rows:
-            ext = str(row.get("value") or row.get("externalVersionId") or "")
-            if not ext:
-                continue
-            cached = cache.get(key_prefix + ext) or {}
-            if not row.get("displayVersion") and cached.get("displayVersion"):
-                row["displayVersion"] = cached["displayVersion"]
-                row["title"] = cached["displayVersion"]
-            if not row.get("sub") and cached.get("sub"):
-                row["sub"] = cached["sub"]
-            if row.get("displayVersion") and row.get("sub"):
-                continue
-            try:
-                meta = self.get_version_metadata(app_id=app_id, bundle=bundle, version_id=ext)
-            except StoreError:
-                continue
-            if meta.get("displayVersion"):
-                row["displayVersion"] = meta["displayVersion"]
-                row["title"] = meta["displayVersion"]
-            if meta.get("sub"):
-                row["sub"] = meta["sub"]
-            cache[key_prefix + ext] = {"displayVersion": row.get("displayVersion") or "", "sub": row.get("sub") or ""}
-            changed = True
-        if changed:
-            try:
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                cache_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-            except OSError:
-                pass
-        return rows
+        if not _begin_enrich(key_prefix):
+            # уже идёт такой же цикл — не плодим второй поток запросов
+            return self.apply_version_cache(rows, app_id=app_id, bundle=bundle)
+        try:
+            for row in rows:
+                if should_stop and should_stop():
+                    break
+                # пауза на время скачивания (и ожидание, пока download держит ipatool)
+                while not self._meta_ok.wait(timeout=0.4):
+                    if should_stop and should_stop():
+                        return rows
+                ext = str(row.get("value") or row.get("externalVersionId") or "")
+                if not ext:
+                    continue
+                cached = _cache_get(key_prefix + ext)
+                if not row.get("displayVersion") and cached.get("displayVersion"):
+                    row["displayVersion"] = cached["displayVersion"]
+                    row["title"] = cached["displayVersion"]
+                if not row.get("sub") and cached.get("sub"):
+                    row["sub"] = cached["sub"]
+                if row.get("displayVersion") and row.get("sub"):
+                    continue
+                try:
+                    with _meta_sema:
+                        if should_stop and should_stop():
+                            break
+                        meta = self.get_version_metadata(app_id=app_id, bundle=bundle, version_id=ext)
+                except StoreError:
+                    continue
+                if meta.get("displayVersion"):
+                    row["displayVersion"] = meta["displayVersion"]
+                    row["title"] = meta["displayVersion"]
+                if meta.get("sub"):
+                    row["sub"] = meta["sub"]
+                _cache_put(key_prefix + ext, {
+                    "displayVersion": row.get("displayVersion") or "",
+                    "sub": row.get("sub") or "",
+                })
+            return rows
+        finally:
+            _end_enrich(key_prefix)
 
     def purchase(self, *, app_id: str | None = None, bundle: str | None = None, force: bool = False) -> dict | str:
         args = ["purchase"] + _id_flags(app_id, bundle)
@@ -337,13 +365,55 @@ class Store:
                 on_progress(hit)
 
         self.run(args, timeout=1800, on_output=_output if on_progress else None)
-        if dest.is_file():
-            return dest
-        if dest.is_dir():
-            ipas = sorted(dest.glob("*.ipa"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if ipas:
-                return ipas[0]
+        from . import ipa as ipa_svc
+        found = ipa_svc.find_output(dest)
+        if found:
+            return found
         raise StoreError("Скачивание завершилось, но файл IPA не найден")
+
+    def download_verified(self, folder: Path, *, title: str, app_id: str | None = None,
+                          bundle: str | None = None, version_id: str | None = None,
+                          buy: bool = False, on_progress=None) -> Path:
+        """Скачать во временный уникальный путь, проверить zip, при порче повторить один раз."""
+        from . import ipa as ipa_svc
+        from restore_gui.service import paths as _paths
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        final = folder / f"{_safe_name(title)}.ipa"
+        expected = [0]
+        last_error = ipa_svc.CORRUPT_AGAIN
+
+        def hook(hit):
+            if hit and hit.get("total"):
+                try:
+                    expected[0] = int(hit["total"])
+                except (TypeError, ValueError):
+                    pass
+            if on_progress:
+                on_progress(hit)
+
+        for attempt in (1, 2):
+            dest = ipa_svc.staging_path(folder, app_id, version_id, title=title)
+            try:
+                raw = self.download(
+                    dest, app_id=app_id, bundle=bundle, version_id=version_id,
+                    buy=buy, on_progress=hook,
+                )
+                check = ipa_svc.validate(raw, expected_size=expected[0] or None)
+                if check.get("ok"):
+                    return ipa_svc.publish(Path(check["path"]), final)
+                last_error = check.get("error") or ipa_svc.CORRUPT_TEXT
+                _paths.write_app_log(
+                    f"IPA не прошёл проверку (попытка {attempt}, {check.get('size') or 0} байт): {last_error}"
+                )
+            except StoreError as exc:
+                last_error = str(exc)
+                _paths.write_app_log(f"скачивание не удалось (попытка {attempt}): {exc}")
+            finally:
+                # если publish уже переименовал dest — его нет; иначе подчистить обломки
+                if dest.exists() or Path(str(dest) + ".tmp").exists():
+                    ipa_svc.remove_outputs(dest)
+        raise StoreError(last_error or ipa_svc.CORRUPT_AGAIN)
 
 
 def _id_flags(app_id: str | None, bundle: str | None) -> list[str]:
@@ -395,6 +465,51 @@ def _load_version_cache() -> dict:
     except (OSError, ValueError):
         pass
     return {}
+
+
+_cache_lock = threading.Lock()
+_enriching: set[str] = set()
+_enrich_lock = threading.Lock()
+_meta_sema = threading.Semaphore(2)
+
+
+def _cache_get(key: str) -> dict:
+    with _cache_lock:
+        return dict(_load_version_cache().get(key) or {})
+
+
+def _cache_put(key: str, value: dict) -> None:
+    from restore_gui.service import paths
+    import json
+    with _cache_lock:
+        cache = _load_version_cache()
+        cache[key] = value
+        path = paths.logs_dir() / "cache" / "versions.json"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(path)
+        except OSError:
+            pass
+
+
+def _begin_enrich(prefix: str) -> bool:
+    with _enrich_lock:
+        if prefix in _enriching:
+            return False
+        _enriching.add(prefix)
+        return True
+
+
+def _end_enrich(prefix: str) -> None:
+    with _enrich_lock:
+        _enriching.discard(prefix)
+
+
+def _safe_name(text: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in " .-_()" else "_" for ch in text).strip()
+    return cleaned[:80] or "app"
 
 
 def _version_items(result) -> list:
@@ -451,6 +566,11 @@ def _as_versions(result) -> list[dict]:
     return out
 
 
+
+def _app_platform(item: dict) -> str:
+    from restore_gui.service import platform as platform_svc
+    return platform_svc.from_metadata(item)
+
 def _normalize_app(item: dict) -> dict:
     app_id = str(item.get("id") or item.get("trackId") or item.get("appId") or "")
     name = str(item.get("name") or item.get("trackName") or item.get("title") or "")
@@ -464,6 +584,8 @@ def _normalize_app(item: dict) -> dict:
         "date": str(item.get("purchaseDate") or item.get("releaseDate") or ""),
         "kind": str(item.get("kind") or item.get("genre") or ""),
         "genre": str(item.get("primaryGenreName") or item.get("genre") or item.get("kind") or ""),
+        "storeKind": str(item.get("kind") or item.get("storeKind") or ""),
+        "platform": _app_platform(item),
         "icon": _artwork_url(item),
         "developer": str(item.get("artistName") or item.get("sellerName") or item.get("developer") or item.get("artist") or ""),
         "raw": item,

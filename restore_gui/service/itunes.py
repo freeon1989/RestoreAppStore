@@ -385,6 +385,12 @@ def _artwork(item: dict) -> str:
     return ""
 
 
+
+def _platform(item: dict) -> str:
+    from restore_gui.service import platform as platform_svc
+    return platform_svc.from_metadata(item)
+
+
 def _from_itunes(item: dict, country: str = "ru") -> dict:
     return {
         "id": str(item.get("trackId") or item.get("id") or ""),
@@ -395,6 +401,8 @@ def _from_itunes(item: dict, country: str = "ru") -> dict:
         "date": str(item.get("releaseDate") or ""),
         "kind": str(item.get("primaryGenreName") or item.get("kind") or ""),
         "genre": str(item.get("primaryGenreName") or ""),
+        "storeKind": str(item.get("kind") or ""),
+        "platform": _platform(item),
         "icon": _artwork(item),
         "developer": str(item.get("artistName") or item.get("sellerName") or ""),
         "onStore": True,

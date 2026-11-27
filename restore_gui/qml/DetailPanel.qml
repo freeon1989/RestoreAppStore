@@ -315,14 +315,15 @@ Drawer {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
+            visible: !backend.detailMacOnly
             Btn {
                 text: "Скачать и установить"; kind: "primary"; Layout.fillWidth: true; implicitHeight: 44
-                enabled: backend.actionsEnabled && !backend.busy
+                enabled: backend.actionsEnabled && !backend.busy && !backend.detailMacOnly
                 onClicked: backend.detailAction(true)
             }
             Btn {
                 text: "Только скачать IPA"; implicitHeight: 44
-                enabled: backend.actionsEnabled && !backend.busy
+                enabled: backend.actionsEnabled && !backend.busy && !backend.detailMacOnly
                 onClicked: backend.detailAction(false)
             }
         }

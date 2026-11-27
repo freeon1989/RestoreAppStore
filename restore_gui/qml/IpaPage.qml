@@ -12,6 +12,18 @@ ColumnLayout {
         spacing: 8
         Btn { text: "Выбрать .ipa с диска…"; kind: "primary"; onClicked: backend.installFile() }
         Btn { text: "Открыть папку с IPA"; lock: false; onClicked: backend.openFolder() }
+        Btn {
+            visible: backend.leftoverCount > 0
+            text: "Удалить незавершённые"
+            kind: "ghost"; lock: false
+            onClicked: backend.cleanLeftovers()
+        }
+    }
+    Text {
+        visible: backend.leftoverCount > 0
+        text: backend.leftoverHint
+        color: backend.pal.warn; font.family: backend.pal.font; font.pixelSize: 13
+        wrapMode: Text.WordWrap; Layout.fillWidth: true
     }
     Text {
         text: backend.ipaDir

@@ -4,9 +4,20 @@ from __future__ import annotations
 import re
 
 from .codesign import LEGACY_TEXT
+from .ipa import CORRUPT_TEXT
 
-# kind: legacy_signature, entitlements, signature, min_os, space, other
+# kind: legacy_signature, entitlements, signature, min_os, space, package_extract, other
 _RULES: list[tuple[str, tuple[str, ...], str]] = [
+    (
+        "package_extract",
+        (
+            "packageextractionfailed",
+            "could not extract archive",
+            "failed to extract archive",
+            "failed to extract the package",
+        ),
+        CORRUPT_TEXT,
+    ),
     (
         "legacy_signature",
         (

@@ -23,6 +23,8 @@ from restore_gui.service import codesign
 from restore_gui.service import device as device_svc
 from restore_gui.service import icons as icon_svc
 from restore_gui.service import ipa as ipa_svc
+from restore_gui.service import jobs as jobs_svc
+from restore_gui.service import platform as platform_svc
 from restore_gui.service import itunes
 from restore_gui.service import paths
 from restore_gui.service import prefs
@@ -116,6 +118,9 @@ class Backend(QObject):
     installHintChanged, installHint = qprop(str, "installHint")
     newerVersionReadyChanged, newerVersionReady = qprop(bool, "newerVersionReady")
     installAnywayReadyChanged, installAnywayReady = qprop(bool, "installAnywayReady")
+    detailMacOnlyChanged, detailMacOnly = qprop(bool, "detailMacOnly")
+    leftoverHintChanged, leftoverHint = qprop(str, "leftoverHint")
+    leftoverCountChanged, leftoverCount = qprop(int, "leftoverCount")
     jobActiveChanged, jobActive = qprop(bool, "jobActive")
     jobOverallChanged, jobOverall = qprop(str, "jobOverall")
     downloadPctChanged, downloadPct = qprop(float, "downloadPct")
@@ -196,6 +201,12 @@ class Backend(QObject):
         self._newerVersionReady = False
         self._installAnywayReady = False
         self._jobActive = False
+        self._detailMacOnly = False
+        self._leftoverHint = ""
+        self._leftoverCount = 0
+        self._enrich_token = 0
+        self._active_job_keys: set[str] = set()
+        self._leftovers_announced = False
         self._jobOverall = ""
         self._downloadPct = -1.0
         self._downloadText = ""
@@ -232,6 +243,7 @@ class Backend(QObject):
         self._reload_accounts()
         self._refresh_palette()
         self.refresh_ipa()
+        self._sweep_temps(announce=True)
         self._refresh_backup()
         self.themeModeChanged.connect(self._on_chrome_changed)
         self.accentNameChanged.connect(self._on_chrome_changed)
@@ -1030,6 +1042,41 @@ class Backend(QObject):
         self.refresh_ipa()
         self.log(f"Удалено файлов IPA: {n}")
 
+
+    def _update_leftovers(self) -> None:
+        leftover = ipa_svc.list_temps(Path(self._ipaDir))
+        self.leftoverCount = len(leftover)
+        self.leftoverHint = ipa_svc.leftover_hint(leftover)
+
+    def _sweep_temps(self, *, announce: bool = False) -> None:
+        # Только при запуске и по кнопке. Не трогать файлы во время текущей загрузки.
+        if self._jobActive:
+            self._update_leftovers()
+            return
+        folder = Path(self._ipaDir)
+        result = ipa_svc.clean_temps(folder, include_huge=False)
+        leftover = result.get("leftover") or []
+        self.leftoverCount = len(leftover)
+        self.leftoverHint = ipa_svc.leftover_hint(leftover)
+        if leftover and announce and not self._leftovers_announced:
+            self._leftovers_announced = True
+            self.show_notice("Незавершённые загрузки", self._leftoverHint + " Откройте «Файлы .ipa» и нажмите «Удалить незавершённые».")
+        else:
+            self._leftovers_announced = True
+
+    @Slot()
+    def cleanLeftovers(self):
+        if self._jobActive:
+            self.show_notice("Папка IPA", "Дождитесь окончания текущей загрузки, затем удалите незавершённые файлы.")
+            return
+        result = ipa_svc.clean_temps(Path(self._ipaDir), include_huge=True)
+        deleted = result.get("deleted") or 0
+        self.refresh_ipa()
+        if deleted:
+            self.show_notice("Папка IPA", f"Удалено незавершённых файлов: {deleted}.")
+        else:
+            self.show_notice("Папка IPA", "Незавершённых загрузок нет.")
+
     def refresh_ipa(self):
         rows = ipa_svc.list_files(Path(self._ipaDir))
         for row in rows:
@@ -1037,6 +1084,7 @@ class Backend(QObject):
             row["letter"] = (row.get("title") or "?")[:1].upper()
         self._ipa.replace(rows)
         self.ipaSummary = f"Файлов IPA: {len(rows)}" if rows else "Скачанных файлов нет"
+        self._update_leftovers()
 
     @Slot(str, int)
     def openDetail(self, list_name, row):
@@ -1064,6 +1112,8 @@ class Backend(QObject):
         self.installHint = ""
         self.newerVersionReady = False
         self.installAnywayReady = False
+        self.detailMacOnly = False
+        self._enrich_token += 1
         self._pending_ipa = None
         self.detailChecks = {
             "acc": {"text": "вход выполнен" if self._loggedIn else "нужен вход в Apple ID",
@@ -1082,18 +1132,26 @@ class Backend(QObject):
                 store_item = itunes.lookup(app["id"], self._country or "ru") if app["id"] else None
             except itunes.ITunesError:
                 store_item = None
+            if (not store_item or not platform_svc.from_metadata(store_item)) and app["id"]:
+                try:
+                    found = itunes.lookup_anywhere([app["id"]], prefer=self._country or "ru")
+                    store_item = store_item or found.get(app["id"])
+                except itunes.ITunesError:
+                    pass
             if app["id"]:
                 try:
                     avail = itunes.availability(app["id"])
                 except itunes.ITunesError:
                     avail = {"present": [], "missing": [], "text": ""}
+            plat = platform_svc.from_metadata(store_item) or platform_svc.from_metadata(app)
             versions = []
             err = ""
-            try:
-                versions = self._store_client().list_versions(app_id=app["id"] or None, bundle=app["bundle"] or None)
-            except StoreError as exc:
-                err = str(exc)
-            return store_item, versions, err, avail
+            if plat != "mac":
+                try:
+                    versions = self._store_client().list_versions(app_id=app["id"] or None, bundle=app["bundle"] or None)
+                except StoreError as exc:
+                    err = str(exc)
+            return store_item, versions, err, avail, plat
 
         def done(result, error):
             if error:
@@ -1101,7 +1159,7 @@ class Backend(QObject):
                 self.detailErr = _public_error(error)
                 self.log(f"Версии: {error}")
                 return
-            store_item, versions, err, avail = result
+            store_item, versions, err, avail, plat = result
             checks = dict(self._detailChecks)
             if store_item:
                 checks["store"] = {"text": f"есть в App Store {regions.name(self._country or 'ru')}", "kind": "ok"}
@@ -1109,6 +1167,14 @@ class Backend(QObject):
                 checks["store"] = {"text": "нет в выбранной витрине каталога", "kind": "warn"}
             self.detailChecks = checks
             self._apply_availability(app["id"], avail)
+            if plat == "mac" or platform_svc.is_mac(store_item):
+                self.detailMacOnly = True
+                self.versionMode = "none"
+                self.actionsEnabled = False
+                self.installHint = "Это приложение только для Mac. На iPhone и iPad его поставить нельзя."
+                self.detailErr = ""
+                return
+            self.detailMacOnly = False
             if versions:
                 self._show_versions(versions, app)
                 return
@@ -1139,12 +1205,18 @@ class Backend(QObject):
         self.actionsEnabled = bool(self._loggedIn)
         app = app or self._detailApp or {}
         if any(not row.get("displayVersion") or not row.get("sub") for row in versions):
+            self._enrich_token += 1
+            token = self._enrich_token
+
             def work():
+                def should_stop():
+                    return token != self._enrich_token
                 return self._store_client().enrich_versions(
-                    list(versions), app_id=app.get("id") or None, bundle=app.get("bundle") or None)
+                    list(versions), app_id=app.get("id") or None, bundle=app.get("bundle") or None,
+                    should_stop=should_stop)
 
             def done(rows, error):
-                if error or not rows:
+                if error or not rows or token != self._enrich_token:
                     return
                 current = self.selectedVersion
                 flagged = [_with_legacy_flag(row, app.get("id")) for row in rows]
@@ -1185,8 +1257,9 @@ class Backend(QObject):
 
     @Slot()
     def closeDetail(self):
-
+        self._enrich_token += 1
         self.detailOpen = False
+        self.detailMacOnly = False
 
     @Slot()
     def detailRecheck(self):
@@ -1204,6 +1277,9 @@ class Backend(QObject):
     @Slot(bool)
     def detailAction(self, install):
         app = self._detailApp or {}
+        if self._detailMacOnly or platform_svc.is_mac(app):
+            self.show_notice("Только для Mac", "Это приложение только для Mac. На iPhone и iPad его поставить нельзя.")
+            return
         self._download_many([{"appId": app.get("id"), "title": app.get("name"), "bundle": app.get("bundle"),
                               "version": self._selectedVersion}], install=install)
 
@@ -1220,11 +1296,22 @@ class Backend(QObject):
     def _download_many(self, rows, install=False):
         if install and self._need_iphone():
             return
+        if self._jobActive:
+            self.show_notice("Загрузка", "Дождитесь окончания текущей загрузки.")
+            return
+        overlap = jobs_svc.has_overlap(self._active_job_keys, rows)
+        if overlap:
+            self.show_notice("Загрузка", "Это приложение уже скачивается.")
+            return
         folder = Path(self._ipaDir)
         folder.mkdir(parents=True, exist_ok=True)
         jobs = []
+        keys = []
         for item in rows:
             title = item.get("title") or item.get("name") or item.get("appId") or item.get("id") or "приложение"
+            version_id = item.get("version") or self._selectedVersion or None
+            key = jobs_svc.job_key(item.get("appId") or item.get("id"), version_id)
+            keys.append(key)
             jobs.append({
                 "title": title,
                 "phase": "очередь",
@@ -1235,60 +1322,106 @@ class Backend(QObject):
                 "state": "queued",
                 "appId": item.get("appId") or item.get("id") or "",
             })
+        self._active_job_keys.update(keys)
         self._begin_jobs(jobs, install=install)
+        self._enrich_token += 1  # остановить подгрузку метаданных
+        try:
+            self._store_client().pause_metadata(True)
+        except Exception:
+            pass
 
         def work():
             results = []
             legacy = None
-            for index, item in enumerate(rows):
-                if self._stop.is_set():
-                    break
-                title = item.get("title") or item.get("name") or item.get("appId") or "приложение"
-                self._job_status(index, state="download", phase="скачивание")
-                app_id = item.get("appId") or item.get("id")
-                bundle = item.get("bundle")
-                dest = folder / f"{_safe_name(title)}.ipa"
-                version_id = item.get("version") or self._selectedVersion or None
+            try:
+                for index, item in enumerate(rows):
+                    if self._stop.is_set():
+                        break
+                    title = item.get("title") or item.get("name") or item.get("appId") or "приложение"
+                    self._job_status(index, state="download", phase="скачивание")
+                    app_id = item.get("appId") or item.get("id")
+                    bundle = item.get("bundle")
+                    version_id = item.get("version") or self._selectedVersion or None
 
-                def on_dl(hit, i=index):
-                    text = progress_svc.format_download(hit.get("pct"), hit.get("done"), hit.get("total"), hit.get("speed"))
-                    self._job_status(i, downloadPct=hit.get("pct") if hit.get("pct") is not None else -1, downloadText=text, phase="скачивание", state="download")
+                    def on_dl(hit, i=index):
+                        text = progress_svc.format_download(hit.get("pct"), hit.get("done"), hit.get("total"), hit.get("speed"))
+                        self._job_status(i, downloadPct=hit.get("pct") if hit.get("pct") is not None else -1, downloadText=text, phase="скачивание", state="download")
 
-                try:
-                    path = self._store_client().download(
-                        dest, app_id=app_id, bundle=bundle or None,
-                        version_id=version_id, buy=self._purchase, on_progress=on_dl,
-                    )
-                except StoreError as exc:
-                    self._job_status(index, state="error", phase="ошибка", downloadText=_public_error(exc))
-                    raise
-                self._job_status(index, state="downloaded", phase="скачано", downloadPct=100, downloadText="100 %")
-                results.append(path)
-                if not install:
-                    continue
-                verdict = codesign.inspect_ipa(path)
-                if verdict.get("legacy"):
-                    _remember_legacy(app_id, version_id)
-                    self._job_status(index, state="legacy", phase="старая подпись", installText=codesign.LEGACY_TEXT)
-                    legacy = {"path": str(path), "title": title, "app_id": app_id, "version": version_id, "verdict": verdict}
-                    continue
-
-                def on_inst(hit, i=index):
-                    text = progress_svc.format_install(hit.get("pct"), hit.get("stage") or "")
-                    self._job_status(i, installPct=hit.get("pct") if hit.get("pct") is not None else -1, installText=text, phase=hit.get("stage") or "установка", state="install")
-
-                device_svc.install_ipa(path, on_progress=on_inst)
-                self._job_status(index, state="done", phase="готово", installPct=100, installText="100 % · установка")
-                if self._deleteAfterInstall:
                     try:
-                        path.unlink()
-                    except OSError:
-                        pass
-            return {"paths": results, "legacy": legacy, "install": install}
+                        path = self._store_client().download_verified(
+                            folder, title=title, app_id=app_id, bundle=bundle or None,
+                            version_id=version_id, buy=self._purchase, on_progress=on_dl,
+                        )
+                    except StoreError as exc:
+                        self._job_status(index, state="error", phase="ошибка", downloadText=_public_error(exc))
+                        raise
+                    check = ipa_svc.validate(path)
+                    if check.get("platform") == "mac":
+                        self._job_status(index, state="error", phase="только для Mac",
+                                         downloadPct=100, downloadText="100 %",
+                                         installText="Это приложение только для Mac. На iPhone и iPad его поставить нельзя.")
+                        raise StoreError("Это приложение только для Mac. На iPhone и iPad его поставить нельзя.")
+                    self._job_status(index, state="downloaded", phase="скачано", downloadPct=100, downloadText="100 %")
+                    results.append(path)
+                    if not install:
+                        continue
+                    verdict = codesign.inspect_ipa(path)
+                    if verdict.get("legacy"):
+                        _remember_legacy(app_id, version_id)
+                        self._job_status(index, state="legacy", phase="старая подпись", installText=codesign.LEGACY_TEXT)
+                        legacy = {"path": str(path), "title": title, "app_id": app_id, "version": version_id, "verdict": verdict}
+                        continue
+
+                    def on_inst(hit, i=index):
+                        text = progress_svc.format_install(hit.get("pct"), hit.get("stage") or "")
+                        self._job_status(i, installPct=hit.get("pct") if hit.get("pct") is not None else -1, installText=text, phase=hit.get("stage") or "установка", state="install")
+
+                    try:
+                        device_svc.install_ipa(path, on_progress=on_inst)
+                    except Exception as inst_exc:
+                        raw = str(getattr(inst_exc, "raw", "") or inst_exc)
+                        kind = ""
+                        try:
+                            from restore_gui.service.install_errors import classify
+                            kind = classify(raw)
+                        except Exception:
+                            kind = ""
+                        if kind != "package_extract":
+                            raise
+                        # устройство не смогло распаковать — ещё одна попытка скачать и поставить
+                        paths.write_app_log(f"установка: PackageExtractionFailed, повторная загрузка: {raw}")
+                        self._job_status(index, state="download", phase="скачиваю заново",
+                                         installText=ipa_svc.CORRUPT_TEXT, downloadPct=0, downloadText="скачиваю заново")
+                        try:
+                            path.unlink()
+                        except OSError:
+                            pass
+                        path = self._store_client().download_verified(
+                            folder, title=title, app_id=app_id, bundle=bundle or None,
+                            version_id=version_id, buy=self._purchase, on_progress=on_dl,
+                        )
+                        device_svc.install_ipa(path, on_progress=on_inst)
+                    self._job_status(index, state="done", phase="готово", installPct=100, installText="100 % · установка")
+                    if self._deleteAfterInstall:
+                        try:
+                            path.unlink()
+                        except OSError:
+                            pass
+                return {"paths": results, "legacy": legacy, "install": install}
+            finally:
+                try:
+                    self._store_client().pause_metadata(False)
+                except Exception:
+                    pass
 
         def done(result, error):
+            self._active_job_keys.difference_update(keys)
             self.refresh_ipa()
             self.jobActive = False
+            try:
+                self._store_client().pause_metadata(False)
+            except Exception:
+                pass
             if error:
                 raw = getattr(error, "raw", "") or str(error)
                 paths.write_app_log(f"загрузка/установка: {raw}")
@@ -1622,6 +1755,10 @@ class Backend(QObject):
         price = format_price(item.get("price") or "")
         developer = str(item.get("developer") or item.get("artist") or "")
         sub = " · ".join(part for part in (developer, price or item.get("version") or item.get("date") or "") if part)
+        plat = item.get("platform") or platform_svc.from_metadata(item) or ""
+        if plat == "mac":
+            status = status or "только для Mac"
+            statusKind = statusKind or "warn"
         return {
             "appId": app_id,
             "title": name,
@@ -1637,6 +1774,7 @@ class Backend(QObject):
             "bundle": item.get("bundle") or "",
             "genre": genre or item.get("genre") or item.get("kind") or "",
             "price": price,
+            "platform": plat,
         }
 
     def _fill_icons(self, model) -> None:
@@ -1648,8 +1786,18 @@ class Backend(QObject):
         def work():
             missing = [row["appId"] for row in rows if row.get("appId") and not str(row.get("icon") or "").startswith("file:")]
             found = {}
-            need_lookup = [app_id for app_id in missing if not any(
-                str(row.get("remoteIcon") or "").startswith("https://") for row in rows if row.get("appId") == app_id)]
+            need_lookup = []
+            for row in rows:
+                app_id = row.get("appId") or ""
+                if not app_id:
+                    continue
+                if row.get("platform") == "mac" or row.get("status") == "только для Mac":
+                    continue
+                no_icon = app_id in missing and not str(row.get("remoteIcon") or "").startswith("https://")
+                needs_platform = not row.get("platform")
+                if no_icon or needs_platform:
+                    need_lookup.append(app_id)
+            need_lookup = list(dict.fromkeys(need_lookup))
             bundles = {row["appId"]: row.get("bundle") or "" for row in rows if row.get("appId") and row.get("bundle")}
             if need_lookup:
                 try:
@@ -1662,26 +1810,35 @@ class Backend(QObject):
                 app_id = row.get("appId") or ""
                 url = str(row.get("remoteIcon") or "")
                 info = found.get(app_id) or {}
+                extra = {}
+                plat = platform_svc.from_metadata(info)
+                if plat:
+                    extra["platform"] = plat
+                if plat == "mac":
+                    extra["status"] = "только для Mac"
+                    extra["statusKind"] = "warn"
                 if not url.startswith("https://"):
                     url = str(info.get("icon") or "")
-                if not url.startswith("https://"):
-                    continue
-                path = icon_svc.fetch(app_id, url)
+                path = None
+                if url.startswith("https://"):
+                    path = icon_svc.fetch(app_id, url)
                 if path:
-                    extra = {}
                     price = format_price(info.get("price") or row.get("price") or "")
                     developer = info.get("developer") or ""
                     if developer or price:
                         extra["sub"] = " · ".join(part for part in (developer, price or row.get("sub") or "") if part)
                     updates.append((app_id, paths.file_url(path), extra))
+                elif extra:
+                    updates.append((app_id, row.get("icon") or "", extra))
             return updates
 
         def done(updates, error):
             if error or not updates:
                 return
             for app_id, icon, extra in updates:
-                fields = {"icon": icon}
-                fields.update(extra)
+                fields = dict(extra)
+                if icon:
+                    fields["icon"] = icon
                 model.patch_by_id(app_id, **fields)
 
         self._run(work, done, mark_busy=False)
