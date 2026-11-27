@@ -100,3 +100,56 @@ class IpaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from restore_gui.backend import _allowed_url, _reduce_motion  # noqa: E402
+from restore_gui import theme  # noqa: E402
+import restore_apps as core  # noqa: E402
+
+
+class AllowedUrlTests(unittest.TestCase):
+    def test_apple_devices_https(self):
+        self.assertTrue(_allowed_url(core.APPLE_DEVICES_STORE_URL))
+        self.assertTrue(_allowed_url("https://apps.microsoft.com/store/detail/apple-devices-preview/9NP83LWLPZ9K"))
+        self.assertTrue(_allowed_url(core.APPLE_DEVICES_STORE_URL.lower()))
+
+    def test_apple_devices_deep_link(self):
+        self.assertTrue(_allowed_url(core.APPLE_DEVICES_STORE_DEEP))
+        self.assertFalse(_allowed_url("ms-windows-store://pdp/?ProductId=9ABCDEF"))
+        self.assertFalse(_allowed_url("ms-windows-store://pdp/?ProductId="))
+
+    def test_rejects_other_hosts(self):
+        self.assertFalse(_allowed_url("https://evil.example/9NP83LWLPZ9K"))
+        self.assertFalse(_allowed_url("https://apps.microsoft.com/detail/9NOTAPPLE"))
+        self.assertFalse(_allowed_url("http://apps.microsoft.com/detail/9NP83LWLPZ9K"))
+
+
+class HeroineOrbTests(unittest.TestCase):
+    def test_all_ten_orbs(self):
+        for key in ("mira", "nora", "liora", "vera", "kira"):
+            for dark in (False, True):
+                orb = theme.heroine_orb(key, dark)
+                self.assertIsInstance(orb["x"], float, msg=f"{key} dark={dark}")
+                self.assertGreater(orb["x"], 0)
+                self.assertLess(orb["x"], 1)
+                self.assertGreater(orb["y"], 0)
+                self.assertLess(orb["y"], 1)
+                self.assertGreater(orb["r"], 0.04)
+                self.assertLess(orb["r"], 0.15)
+                self.assertTrue(orb["color"].startswith("#"))
+        self.assertEqual(theme.heroine_orb("off"), {})
+        self.assertEqual(theme.heroine_orb(""), {})
+
+    def test_reduce_motion_env(self):
+        import os
+        old = os.environ.get("QML_REDUCE_MOTION")
+        try:
+            os.environ["QML_REDUCE_MOTION"] = "1"
+            self.assertTrue(_reduce_motion())
+            os.environ["QML_REDUCE_MOTION"] = "0"
+            self.assertFalse(_reduce_motion())
+        finally:
+            if old is None:
+                os.environ.pop("QML_REDUCE_MOTION", None)
+            else:
+                os.environ["QML_REDUCE_MOTION"] = old

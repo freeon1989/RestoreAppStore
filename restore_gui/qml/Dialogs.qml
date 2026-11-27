@@ -68,7 +68,13 @@ Item {
         width: 560
         Text { id: helpText; textFormat: Text.PlainText; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 15; wrapMode: Text.WordWrap
                Layout.fillWidth: true; lineHeight: 1.15 }
-        Btn { text: "Понятно"; lock: false; Layout.alignment: Qt.AlignRight; onClicked: help.close() }
+        RowLayout {
+            Layout.fillWidth: true
+            Btn { text: "Открыть «Устройства Apple»"; kind: "second"; lock: false
+                  onClicked: backend.openAppleDevicesStore() }
+            Item { Layout.fillWidth: true }
+            Btn { text: "Понятно"; lock: false; onClicked: help.close() }
+        }
     }
 
     // ---------- настройки ----------

@@ -36,7 +36,7 @@ RestoreAppStore — самостоятельная программа для 64-
 · [SHA-256 exe](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.exe.sha256)
 · [SHA-256 zip](https://github.com/freeon1989/RestoreAppStore/releases/latest/download/RestoreAppStore-win-x64.zip.sha256)
 
-Актуальная версия: **2.0.1**. Нужна **64-битная Windows 10 или 11**.
+Актуальная версия: **2.0.2**. Нужна **64-битная Windows 10 или 11**.
 
 Запустите скачанный `RestoreAppStore-win-x64.exe` либо распакуйте `RestoreAppStore-win-x64.zip` и откройте `RestoreAppStore\RestoreAppStore.exe`. Сборка не подписана цифровым сертификатом, поэтому Windows SmartScreen может показать предупреждение «Windows защитила ваш компьютер». Нажмите «Подробнее» → «Выполнить в любом случае».
 
@@ -44,10 +44,10 @@ RestoreAppStore — самостоятельная программа для 64-
 
 Если уже стоит предыдущая версия, в программе откройте «Настройки → О программе → Проверить обновления».
 
-SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 2.0.1):
+SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 2.0.2):
 
 ```
-8041a309353ae9b46b702e509fd2dfa6e982d604c6193bdc53165c51f164078b
+85fa3b376d18b5d8f1bd807784e0eb01a752b55c2f57b4124570d89b2234030f
 ```
 
 В PowerShell проверка такая:
@@ -56,10 +56,10 @@ SHA-256 файла `RestoreAppStore-win-x64.exe` (версия 2.0.1):
 Get-FileHash .\RestoreAppStore-win-x64.exe -Algorithm SHA256
 ```
 
-SHA-256 архива `RestoreAppStore-win-x64.zip` (версия 2.0.1):
+SHA-256 архива `RestoreAppStore-win-x64.zip` (версия 2.0.2):
 
 ```
-be5d9e762f747baea330db382b0249086396188995a2c047fd3650ddbd0ae735
+97c0c2b38c2afa017ed8d8ad1f44865f074e3591100b1a6e27913ace52d547a3
 ```
 
 
@@ -90,11 +90,11 @@ be5d9e762f747baea330db382b0249086396188995a2c047fd3650ddbd0ae735
   </tr>
   <tr>
     <td width="58%"><img src="docs/screenshots/login.png" alt="Окно входа в Apple ID"></td>
-    <td width="42%"></td>
+    <td width="42%"><img src="docs/screenshots/device-hint.png" alt="Подсказка про Устройства Apple"></td>
   </tr>
   <tr>
     <td align="center">Вход в Apple ID (демо, пароль вводить не нужно)</td>
-    <td></td>
+    <td align="center">Если iPhone не виден: ссылка на «Устройства Apple»</td>
   </tr>
 </table>
 
@@ -117,8 +117,20 @@ be5d9e762f747baea330db382b0249086396188995a2c047fd3650ddbd0ae735
 
 - 64-битная **Windows 10 или 11**.
 - Apple ID, под которым нужное приложение когда-то скачивалось.
-- Чтобы **поставить** приложение на телефон: разблокированный iPhone, кабель USB и «Устройства Apple» либо iTunes. На запрос «Доверять этому компьютеру?» нажмите «Доверять».
+- Чтобы **поставить** приложение на телефон: разблокированный iPhone, кабель USB и приложение «Устройства Apple». Подробности — в разделе «Перед началом».
 - Чтобы **только скачать IPA**, телефон не обязателен.
+
+## Перед началом
+
+Чтобы Windows увидела iPhone по кабелю, нужно официальное приложение Apple «Устройства Apple» (Apple Devices) из Microsoft Store.
+
+1. Установите [«Устройства Apple» из Microsoft Store](https://apps.microsoft.com/detail/9NP83LWLPZ9K) (издатель — Apple Inc., код продукта `9NP83LWLPZ9K`).
+2. Подключите разблокированный iPhone кабелем USB.
+3. На телефоне нажмите «Доверять этому компьютеру?».
+
+Если программа не видит iPhone, на главном экране появится та же подсказка и кнопка, которая открывает Microsoft Store. Ссылку можно открыть и в «Настройки → О программе» или в справке.
+
+Чтобы только скачать IPA, телефон не обязателен.
 
 ## Как пользоваться
 

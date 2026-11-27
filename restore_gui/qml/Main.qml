@@ -35,6 +35,33 @@ ApplicationWindow {
         source: backend.heroineUrl
         asynchronous: true
         opacity: 1
+        readonly property real paintedX: width - paintedWidth
+        readonly property real paintedY: (height - paintedHeight) / 2
+        readonly property var orb: backend.heroineOrb
+        readonly property bool hasOrb: visible && status === Image.Ready && typeof orb.x === "number"
+        readonly property real orbPad: hasOrb ? orb.r * 1.35 : 0.10
+        // карточки не заходят на лицо (не меньше 48% ширины) и не закрывают сферу
+        readonly property real contentRightPad: {
+            if (!visible)
+                return 0
+            var floor = Math.max(24, Math.round(12 + width * 0.48))
+            if (!hasOrb)
+                return floor
+            var pad = 12 + width - paintedWidth * (orb.x - orbPad)
+            return Math.max(floor, Math.round(pad))
+        }
+    }
+    Rectangle {
+        visible: heroine.visible
+        x: heroine.x + heroine.paintedX
+        y: heroine.y + heroine.paintedY + heroine.paintedHeight - height
+        width: heroine.paintedWidth
+        height: Math.max(72, Math.round(heroine.paintedHeight * 0.22))
+        gradient: Gradient {
+            GradientStop { position: 0.00; color: backend.pal.bgClear }
+            GradientStop { position: 0.40; color: backend.pal.bgFade }
+            GradientStop { position: 1.00; color: backend.pal.bg }
+        }
     }
     Rectangle {
         anchors.fill: parent
@@ -45,6 +72,51 @@ ApplicationWindow {
             GradientStop { position: 0.50; color: backend.pal.bg }
             GradientStop { position: 0.70; color: backend.pal.bgFade }
             GradientStop { position: 1.00; color: backend.pal.bgClear }
+        }
+    }
+    Item {
+        id: orbGlow
+        visible: heroine.hasOrb
+        x: heroine.x + heroine.paintedX
+        y: heroine.y + heroine.paintedY
+        width: heroine.paintedWidth
+        height: heroine.paintedHeight
+        readonly property real cx: (heroine.orb.x || 0) * width
+        readonly property real cy: (heroine.orb.y || 0) * height
+        readonly property real base: (heroine.orb.r || 0.08) * width
+        readonly property color tint: heroine.orb.color || "#88FFCC"
+        readonly property bool animate: !backend.reduceMotion
+
+        Item {
+            id: glow
+            width: orbGlow.base * 3.2
+            height: width
+            x: orbGlow.cx - width / 2
+            y: orbGlow.cy - height / 2
+            property real pulse: orbGlow.animate ? 0.7 : 0.78
+            Repeater {
+                model: 3
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: glow.width * (0.40 + index * 0.30)
+                    height: width
+                    radius: width / 2
+                    color: orbGlow.tint
+                    opacity: glow.pulse * (index === 0 ? 0.50 : index === 1 ? 0.26 : 0.11)
+                }
+            }
+        }
+        SequentialAnimation {
+            running: orbGlow.visible && orbGlow.animate
+            loops: Animation.Infinite
+            ParallelAnimation {
+                NumberAnimation { target: glow; property: "pulse"; from: 0.52; to: 1.0; duration: 1400; easing.type: Easing.InOutSine }
+                NumberAnimation { target: glow; property: "scale"; from: 0.92; to: 1.08; duration: 1400; easing.type: Easing.InOutSine }
+            }
+            ParallelAnimation {
+                NumberAnimation { target: glow; property: "pulse"; from: 1.0; to: 0.52; duration: 1400; easing.type: Easing.InOutSine }
+                NumberAnimation { target: glow; property: "scale"; from: 1.08; to: 0.92; duration: 1400; easing.type: Easing.InOutSine }
+            }
         }
     }
 
@@ -62,7 +134,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             // карточки не заходят на лицо и торс героини справа
-            Layout.rightMargin: heroine.visible ? Math.max(24, Math.round(heroine.width * 0.48)) : 0
+            Layout.rightMargin: heroine.contentRightPad
             spacing: 0
             enabled: !detail.visible && !dialogs.anyOpen
 

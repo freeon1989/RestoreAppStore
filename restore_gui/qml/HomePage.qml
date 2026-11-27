@@ -52,6 +52,32 @@ ColumnLayout {
         }
     }
 
+    Rectangle {
+        visible: backend.deviceState !== "ok"
+        Layout.fillWidth: true
+        implicitHeight: hintCol.implicitHeight + 24
+        radius: 16
+        color: backend.pal.accentSoft
+        border.color: backend.pal.accentDim
+        ColumnLayout {
+            id: hintCol
+            anchors.left: parent.left; anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 16; anchors.rightMargin: 16
+            spacing: 10
+            Text {
+                text: "Не видно iPhone? Установите «Устройства Apple» из Microsoft Store, подключите кабель и нажмите «Доверять» на телефоне."
+                color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
+                wrapMode: Text.WordWrap; Layout.fillWidth: true; lineHeight: 1.3
+            }
+            Btn {
+                text: "Открыть Microsoft Store"; kind: "primary"; lock: false
+                implicitHeight: 36
+                onClicked: backend.openAppleDevicesStore()
+            }
+        }
+    }
+
     RowLayout {
         Layout.topMargin: 16
         Text { text: "Популярное"; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 20; font.weight: Font.Bold }
@@ -102,7 +128,7 @@ ColumnLayout {
         signal clicked()
         Layout.fillWidth: true
         Layout.preferredWidth: 1
-        implicitHeight: 118
+        implicitHeight: 128
         radius: 16
         color: main ? (stepHover.hovered ? backend.pal.accentHover : backend.pal.accent) : (stepHover.hovered ? backend.pal.cardHover : backend.pal.card)
         border.color: main ? "transparent" : (done ? backend.pal.okDim : backend.pal.border)
@@ -126,7 +152,7 @@ ColumnLayout {
                 }
             }
             Text { text: step.title; color: step.main ? "white" : backend.pal.text; font.family: backend.pal.font; font.pixelSize: 16
-                   font.weight: Font.Bold; elide: Text.ElideRight; Layout.fillWidth: true }
+                   font.weight: Font.Bold; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; Layout.fillWidth: true }
             Text { textFormat: Text.PlainText; text: step.sub; color: step.main ? Qt.rgba(1, 1, 1, 0.88) : step.warn ? backend.pal.warn : backend.pal.muted
                    font.family: backend.pal.font; font.pixelSize: 13; wrapMode: Text.WordWrap; maximumLineCount: 3
                    elide: Text.ElideRight; Layout.fillWidth: true }

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 import threading
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from PySide6.QtCore import Property, QObject, Qt, QUrl, QTimer, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
@@ -99,6 +100,9 @@ class Backend(QObject):
     displayName = Property(str, lambda self: core.DISPLAY_NAME, constant=True)
     supportUrl = Property(str, lambda self: core.SUPPORT_URL, constant=True)
     repoUrl = Property(str, lambda self: f"https://github.com/{core.REPO}", constant=True)
+    appleDevicesUrl = Property(str, lambda self: core.APPLE_DEVICES_STORE_URL, constant=True)
+    reduceMotion = Property(bool, lambda self: _reduce_motion(), constant=True)
+
 
     def __init__(self, background=True):
         super().__init__()
@@ -214,6 +218,7 @@ class Backend(QObject):
         self._refresh_palette()
         self.heroinesChanged.emit()
         self.heroineUrlChanged.emit()
+        self.heroineOrbChanged.emit()
         self._persist()
 
     def _is_dark(self) -> bool:
@@ -273,6 +278,7 @@ class Backend(QObject):
 
     heroinesChanged = Signal()
     heroineUrlChanged = Signal()
+    heroineOrbChanged = Signal()
 
     @Property("QVariantList", notify=heroinesChanged)
     def heroines(self):
@@ -285,6 +291,10 @@ class Backend(QObject):
     @Property(str, notify=heroineUrlChanged)
     def heroineUrl(self):
         return theme.heroine_url(self._heroineName, self._is_dark())
+
+    @Property("QVariantMap", notify=heroineOrbChanged)
+    def heroineOrb(self):
+        return theme.heroine_orb(self._heroineName, self._is_dark())
 
     @Property(str, constant=True)
     def greeting(self):
@@ -335,10 +345,13 @@ class Backend(QObject):
     def _on_device(self, result, error):
         if error or not result:
             self.deviceState, self.deviceText = "none", "Подключите iPhone кабелем"
+            self.log("iPhone не виден. Если кабель уже подключён, установите «Устройства Apple» из Microsoft Store.")
             return
         self.deviceState = result.get("state") or "none"
         self.deviceText = result.get("text") or ""
         self._device_apps = result.get("apps") or []
+        if self.deviceState != "ok":
+            self.log("iPhone не виден. Если кабель уже подключён, установите «Устройства Apple» из Microsoft Store.")
 
     def _load_popular(self):
         if self._demo:
@@ -652,6 +665,9 @@ class Backend(QObject):
 
     @Slot(str)
     def installIpa(self, path):
+        if self._need_iphone():
+            return
+
         def work():
             device_svc.install_ipa(Path(path))
             return path
@@ -797,7 +813,19 @@ class Backend(QObject):
         self._download_many([{"appId": app.get("id"), "title": app.get("name"), "bundle": app.get("bundle"),
                               "version": self._selectedVersion}], install=install)
 
+    def _need_iphone(self) -> bool:
+        """True, если установку нельзя начать: телефон не виден, уже показали подсказку."""
+        if self._deviceState == "ok":
+            return False
+        self.show_notice(
+            "iPhone не виден",
+            "Установите «Устройства Apple» из Microsoft Store, подключите кабель и нажмите «Доверять» на телефоне.",
+        )
+        return True
+
     def _download_many(self, rows, install=False):
+        if install and self._need_iphone():
+            return
         folder = Path(self._ipaDir)
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -918,6 +946,14 @@ class Backend(QObject):
             return
         QDesktopServices.openUrl(QUrl(url))
 
+    @Slot()
+    def openAppleDevicesStore(self):
+        """Сначала протокол Microsoft Store, если не открылся — страница в браузере."""
+        if sys.platform == "win32":
+            if QDesktopServices.openUrl(QUrl(core.APPLE_DEVICES_STORE_DEEP)):
+                return
+        QDesktopServices.openUrl(QUrl(core.APPLE_DEVICES_STORE_URL))
+
     @Slot(str)
     def copyText(self, text):
         QApplication.clipboard().setText(text or "")
@@ -932,6 +968,9 @@ class Backend(QObject):
             f"{core.DISPLAY_NAME} {core.__version__}\n\n"
             "Программа входит в ваш Apple ID через ipatool-cpp, показывает историю покупок, "
             "скачивает IPA и ставит их на iPhone по кабелю.\n\n"
+            "Чтобы Windows увидела iPhone, установите приложение «Устройства Apple» (Apple Devices) "
+            "из Microsoft Store, подключите кабель и на телефоне нажмите «Доверять».\n"
+            f"Ссылка: {core.APPLE_DEVICES_STORE_URL}\n\n"
             "Пароль Apple ID на диск не записывается: сессию хранит ipatool-cpp в зашифрованном виде, "
             "а ключ к ней — в Windows Credential Manager или в файле, защищённом DPAPI.\n\n"
             "Обновления берутся только с GitHub Releases, файл сверяется по SHA-256. "
@@ -1004,13 +1043,43 @@ def _safe_name(text: str) -> str:
 def _allowed_url(url: str) -> bool:
     parts = urlsplit(url or "")
     host = (parts.hostname or "").lower()
-    if parts.scheme != "https" or parts.username:
+    scheme = (parts.scheme or "").lower()
+    if parts.username:
         return False
+    product = core.APPLE_DEVICES_PRODUCT_ID.lower()
+    if scheme == "ms-windows-store":
+        query = {k.lower(): v for k, v in parse_qs(parts.query).items()}
+        pid = (query.get("productid") or [""])[0].lower()
+        where = f"{parts.netloc}{parts.path}".lower()
+        return "pdp" in where and pid == product
+    if scheme != "https":
+        return False
+    if host == "apps.microsoft.com":
+        return product in (parts.path or "").lower()
     allowed = (
         "github.com", "api.github.com", "objects.githubusercontent.com",
         "release-assets.githubusercontent.com", "pay.cloudtips.ru", "cloudtips.ru",
     )
     return host in allowed or host.endswith(".github.com")
+
+
+def _reduce_motion() -> bool:
+    """Учесть системную настройку анимации Windows и переменную QML_REDUCE_MOTION."""
+    flag = os.environ.get("QML_REDUCE_MOTION", "").strip().lower()
+    if flag in {"1", "true", "yes"}:
+        return True
+    if flag in {"0", "false", "no"}:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            value = ctypes.c_int(1)
+            # SPI_GETCLIENTAREAANIMATION = 0x1042: 0 значит анимации выключены
+            if ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(value), 0):
+                return value.value == 0
+        except Exception:  # noqa: BLE001 — на не-Windows или без API просто оставляем анимацию
+            return False
+    return False
 
 
 def sys_frozen():

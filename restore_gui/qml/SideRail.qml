@@ -95,6 +95,15 @@ Rectangle {
                 }
             }
         }
+        Text {
+            visible: backend.deviceState !== "ok"
+            text: "Установить «Устройства Apple»"
+            color: storeHover.hovered ? backend.pal.accent : backend.pal.accentText
+            font.family: backend.pal.font; font.pixelSize: 12; font.weight: Font.DemiBold
+            wrapMode: Text.WordWrap; Layout.fillWidth: true
+            HoverHandler { id: storeHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: backend.openAppleDevicesStore() }
+        }
 
         Btn {
             visible: !backend.loggedIn

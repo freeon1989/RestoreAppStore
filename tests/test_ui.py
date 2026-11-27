@@ -36,8 +36,15 @@ class UiTests(unittest.TestCase):
         self.assertIn("mira-dark.jpg", backend.heroineUrl)
         backend.themeMode = "light"
         self.assertIn("mira-light.jpg", backend.heroineUrl)
+        self.assertEqual(backend.appleDevicesUrl, "https://apps.microsoft.com/detail/9NP83LWLPZ9K")
+        self.assertIn("Устройства Apple", backend.helpText())
+        self.assertIn("9NP83LWLPZ9K", backend.helpText())
+        orb = backend.heroineOrb
+        self.assertGreater(orb["x"], 0)
+        self.assertLess(orb["x"], 1)
         backend.heroineName = "off"
         self.assertEqual(backend.heroineUrl, "")
+        self.assertEqual(backend.heroineOrb, {})
         self.assertTrue(any(h["key"] == "kira" for h in backend.heroines))
         self.assertIn("Все", backend.categories)
         report = Path(tempfile.mkstemp(suffix=".txt")[1])

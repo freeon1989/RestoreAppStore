@@ -298,6 +298,16 @@ Popup {
                                       onClicked: backend.rollbackUpdate() } }
                         }
 
+                        Group {
+                            Row2 {
+                                last: true
+                                title: "Устройства Apple"
+                                sub: "Официальное приложение Apple из Microsoft Store. Без него Windows обычно не видит iPhone по кабелю. Затем подключите кабель и на телефоне нажмите «Доверять»."
+                                Btn { text: "Открыть Store"; kind: "primary"; lock: false; implicitHeight: 34
+                                      onClicked: backend.openAppleDevicesStore() }
+                            }
+                        }
+
                     }
                 }
             }

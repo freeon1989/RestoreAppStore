@@ -92,7 +92,42 @@ HEROINES = {
     "vera": {"title": "Вера", "accent": "#6B4C8A"},
     "kira": {"title": "Кира", "accent": "#8A2E3A"},
 }
+
 DEFAULT_HEROINE = "mira"
+
+# Центр и радиус магической сферы: доли ширины/высоты кадра 864×1152.
+# r — доля ширины. color — оттенок мягкого свечения поверх рисунка.
+HEROINE_ORBS = {
+    "mira": {
+        "light": {"x": 0.503, "y": 0.188, "r": 0.080, "color": "#3DFF7A"},
+        "dark":  {"x": 0.510, "y": 0.200, "r": 0.075, "color": "#5CFF88"},
+    },
+    "nora": {
+        "light": {"x": 0.512, "y": 0.199, "r": 0.080, "color": "#6EE8FF"},
+        "dark":  {"x": 0.555, "y": 0.235, "r": 0.080, "color": "#4CD3FF"},
+    },
+    "liora": {
+        "light": {"x": 0.295, "y": 0.245, "r": 0.085, "color": "#FFD56A"},
+        "dark":  {"x": 0.455, "y": 0.250, "r": 0.090, "color": "#FFD070"},
+    },
+    "vera": {
+        "light": {"x": 0.855, "y": 0.095, "r": 0.080, "color": "#7AE0FF"},
+        "dark":  {"x": 0.902, "y": 0.078, "r": 0.070, "color": "#6CFFC4"},
+    },
+    "kira": {
+        "light": {"x": 0.511, "y": 0.156, "r": 0.080, "color": "#FFC15A"},
+        "dark":  {"x": 0.511, "y": 0.187, "r": 0.075, "color": "#FFC056"},
+    },
+}
+
+
+def heroine_orb(key: str, dark: bool = False) -> dict:
+    """Координаты сферы для наложения свечения, либо пустой словарь."""
+    themes = HEROINE_ORBS.get(key) or {}
+    info = themes.get("dark" if dark else "light") or {}
+    if not info:
+        return {}
+    return {"x": float(info["x"]), "y": float(info["y"]), "r": float(info["r"]), "color": str(info["color"])}
 
 
 def heroine_url(key: str, dark: bool = False) -> str:

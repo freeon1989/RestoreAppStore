@@ -140,7 +140,7 @@ def main():
     settle(app)
 
     b.showPage("home")
-    settle(app)
+    settle(app, 1.4)
     save(win, "home.png")
 
     b.showPage("apps")
@@ -183,8 +183,17 @@ def main():
 
     b.themeMode = "dark"
     b.showPage("home")
-    settle(app, 1.0)
+    settle(app, 1.4)
     save(win, "dark.png")
+
+    b.themeMode = "light"
+    b.deviceState = "none"
+    b.deviceText = "Подключите iPhone кабелем"
+    b.showPage("home")
+    settle(app, 1.0)
+    save(win, "device-hint.png")
+    b.deviceState = "ok"
+    b.deviceText = "iPhone (демо)"
 
     b.loggedIn, b.account = False, ""
     b.openLogin("Демонстрация окна входа. Пароль вводить не нужно.")
