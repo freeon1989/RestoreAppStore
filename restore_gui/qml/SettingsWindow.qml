@@ -124,7 +124,7 @@ Popup {
                         }
                         Label2 { text: "Героиня на фоне"; Layout.topMargin: 10 }
                         Text {
-                            text: "Справа в полный рост. В светлой теме — светлая сказка, в тёмной — dark fantasy. Можно выключить."
+                            text: "Справа в полный рост, с магией. На светлом фоне — тёмный латекс, на тёмном — светлый. Можно выключить."
                             color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
                             wrapMode: Text.WordWrap; Layout.fillWidth: true
                         }

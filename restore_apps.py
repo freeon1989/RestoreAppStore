@@ -4,7 +4,7 @@
 (%LOCALAPPDATA%\\Restore), чтобы сохранились настройки оформления.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 APP_NAME = "Restore"
 DISPLAY_NAME = "RestoreAppStore"
 REPO = "freeon1989/RestoreAppStore"

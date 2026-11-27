@@ -28,7 +28,7 @@ ApplicationWindow {
         anchors.bottomMargin: 20
         anchors.rightMargin: 12
         // ширина по высоте кадра 3:4, фигура целиком, без обрезки
-        width: Math.min(parent.width * 0.42, (height) * 0.75)
+        width: Math.min(parent.width * 0.36, (height) * 0.68)
         fillMode: Image.PreserveAspectFit
         horizontalAlignment: Image.AlignRight
         verticalAlignment: Image.AlignVCenter
@@ -61,6 +61,8 @@ ApplicationWindow {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            // карточки не заходят на лицо и торс героини справа
+            Layout.rightMargin: heroine.visible ? Math.max(24, Math.round(heroine.width * 0.48)) : 0
             spacing: 0
             enabled: !detail.visible && !dialogs.anyOpen
 

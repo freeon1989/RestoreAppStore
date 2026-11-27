@@ -31,10 +31,11 @@ class UiTests(unittest.TestCase):
         self.assertTrue(backend.loggedIn)
         self.assertEqual(backend.account, "demo@example.com")
         self.assertGreaterEqual(len(backend.popular._rows), 1)
+        backend.heroineName = "mira"
         backend.themeMode = "dark"
-        self.assertTrue(backend.heroineUrl.endswith("mira-dark.jpg") or "mira-dark.jpg" in backend.heroineUrl)
+        self.assertIn("mira-dark.jpg", backend.heroineUrl)
         backend.themeMode = "light"
-        self.assertTrue("mira-light.jpg" in backend.heroineUrl)
+        self.assertIn("mira-light.jpg", backend.heroineUrl)
         backend.heroineName = "off"
         self.assertEqual(backend.heroineUrl, "")
         self.assertTrue(any(h["key"] == "kira" for h in backend.heroines))
