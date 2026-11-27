@@ -142,6 +142,8 @@ python -m PyInstaller --noconfirm --clean RestoreAppStore.spec
 
 Output: `dist\RestoreAppStore.exe`. The portable one-file exe can be renamed to `RestoreAppStore-win-x64.exe`.
 
+The same Windows build on GitHub Actions: `scripts/ci_windows.ps1` (workflow `.github/workflows/windows-build.yml`) produces both the exe and the zip.
+
 Run without packaging (Python 3.12 and ipatool-cpp on `PATH` or next to the scripts):
 
 ```text
@@ -154,6 +156,12 @@ Logic tests, with no network, Apple ID or iPhone:
 ```text
 py -V:3.12 -m unittest discover tests
 ```
+
+## Code signing policy
+
+The signing policy is in [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md). A short privacy notice is in [docs/privacy.md](docs/privacy.md).
+
+Until the SignPath Foundation application is approved, published builds are unsigned, so Windows SmartScreen may show a warning (see Download above).
 
 ## Licence
 

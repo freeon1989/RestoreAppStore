@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for the GitHub Actions artifact
+  "RestoreAppStore-windows-unsigned".
+
+  upload-artifact wraps the release/ folder in a ZIP, so the root element is zip-file.
+  Only RestoreAppStore's own executables are signed. ipatool-cpp.exe is an upstream
+  open-source binary and is left unsigned, as required by SignPath Foundation terms.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="RestoreAppStore-win-x64.exe">
+      <authenticode-sign/>
+    </pe-file>
+    <zip-file path="RestoreAppStore-win-x64.zip">
+      <pe-file path="RestoreAppStore/RestoreAppStore.exe">
+        <authenticode-sign/>
+      </pe-file>
+    </zip-file>
+  </zip-file>
+</artifact-configuration>

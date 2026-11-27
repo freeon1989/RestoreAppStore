@@ -167,6 +167,8 @@ python -m PyInstaller --noconfirm --clean RestoreAppStore.spec
 
 Готовый файл: `dist\RestoreAppStore.exe`. Портативный однофайловый exe можно переименовать в `RestoreAppStore-win-x64.exe`.
 
+Та же сборка для Windows на GitHub Actions: `scripts/ci_windows.ps1` (workflow `.github/workflows/windows-build.yml`) собирает и exe, и zip.
+
 Запуск без упаковки (нужен Python 3.12 и ipatool-cpp в `PATH` или рядом со скриптами):
 
 ```text
@@ -179,6 +181,12 @@ py -V:3.12 restore_apps_gui.py
 ```text
 py -V:3.12 -m unittest discover tests
 ```
+
+## Code signing policy
+
+Политика подписи сборки — в [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md) (Code signing policy). Кратко про данные — в [docs/privacy.md](docs/privacy.md).
+
+Пока заявка в SignPath Foundation не одобрена, опубликованная сборка не подписана: Windows SmartScreen может показать предупреждение (см. раздел «Скачать»).
 
 ## Лицензия
 

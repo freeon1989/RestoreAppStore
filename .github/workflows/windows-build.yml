@@ -1,0 +1,103 @@
+# Build RestoreAppStore for Windows x64 on a GitHub-hosted runner.
+# Produces the same assets as a release: onefile exe, onedir zip, and SHA-256 files.
+# Does not publish a GitHub Release (releases stay manual until SignPath is approved).
+#
+# SignPath: after the foundation approves the project, set the repository variables
+# and the SIGNPATH_API_TOKEN secret (see docs/SIGNPATH.md). Signing then runs on
+# v* tags, or on workflow_dispatch with sign=true.
+name: Windows build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: "Submit the build to SignPath (requires configured secrets)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: windows-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Reduce Defender interference with the PyInstaller output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $paths = @(
+            (Join-Path (Get-Location) "dist"),
+            (Join-Path (Get-Location) "build"),
+            (Join-Path (Get-Location) "release")
+          )
+          foreach ($p in $paths) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
+          try {
+            Add-MpPreference -ExclusionPath $paths
+            Write-Host "Defender exclusions added"
+          } catch {
+            Write-Host "Defender exclusion not applied: $($_.Exception.Message)"
+          }
+
+      - name: Build exe and zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File scripts/ci_windows.ps1
+
+      - name: Upload unsigned release files
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: RestoreAppStore-windows-unsigned
+          path: release/*
+          if-no-files-found: error
+
+    outputs:
+      artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+
+  sign:
+    needs: build
+    if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.sign)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Submit signing request
+        id: sign
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ needs.build.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - name: Upload signed files
+        uses: actions/upload-artifact@v4
+        with:
+          name: RestoreAppStore-windows-signed
+          path: signed/**
+          if-no-files-found: error
