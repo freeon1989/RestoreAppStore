@@ -15,7 +15,7 @@ ColumnLayout {
             font.family: backend.pal.font; font.pixelSize: 12; font.weight: Font.DemiBold
             font.letterSpacing: 1.2
         }
-        Text { text: "Снова на iPhone"; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 34; font.weight: Font.ExtraBold }
+        Text { text: "Снова на iPhone и iPad"; color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 34; font.weight: Font.ExtraBold }
         Text {
             text: "Найдите в истории покупок своего Apple ID приложения, которых уже нет в App Store, и поставьте их обратно."
             color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 15; wrapMode: Text.WordWrap
@@ -39,8 +39,8 @@ ColumnLayout {
             number: 2
             done: backend.deviceState === "ok"
             warn: backend.deviceState === "trust"
-            title: backend.deviceState === "ok" ? "iPhone подключён" : "Подключить iPhone"
-            sub: backend.deviceState === "none" ? "подключите кабелем и нажмите «Доверять»" : backend.deviceText
+            title: backend.deviceState === "ok" ? "Устройство подключено" : "Подключить устройство"
+            sub: backend.deviceState === "none" ? "подключите iPhone или iPad кабелем и нажмите «Доверять»" : backend.deviceText
             onClicked: backend.connectDevice()
         }
         Step {
@@ -66,7 +66,7 @@ ColumnLayout {
             anchors.leftMargin: 16; anchors.rightMargin: 16
             spacing: 10
             Text {
-                text: "Не видно iPhone? Установите «Устройства Apple» из Microsoft Store, подключите кабель и нажмите «Доверять» на телефоне."
+                text: "Не видно iPhone или iPad? Установите «Устройства Apple» из Microsoft Store, подключите кабель и нажмите «Доверять» на устройстве."
                 color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
                 wrapMode: Text.WordWrap; Layout.fillWidth: true; lineHeight: 1.3
             }

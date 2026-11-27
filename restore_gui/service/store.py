@@ -224,7 +224,78 @@ class Store:
         if buy:
             args.append("--purchase")
         result = self.run(args, timeout=180)
-        return _as_versions(result)
+        rows = _as_versions(result)
+        return self.apply_version_cache(rows, app_id=app_id, bundle=bundle)
+
+    def get_version_metadata(self, *, app_id: str | None = None, bundle: str | None = None,
+                             version_id: str = "") -> dict:
+        if not version_id:
+            return {}
+        args = ["get-version-metadata"] + _id_flags(app_id, bundle) + ["--external-version-id", str(version_id)]
+        result = self.run(args, timeout=60)
+        rows = _as_versions(result)
+        return rows[0] if rows else {}
+
+    def apply_version_cache(self, rows: list[dict], *, app_id: str | None, bundle: str | None) -> list[dict]:
+        cache = _load_version_cache()
+        prefix = f"{app_id or bundle or ''}:"
+        for row in rows:
+            ext = str(row.get("value") or "")
+            cached = cache.get(prefix + ext) or {}
+            if cached.get("displayVersion") and not row.get("displayVersion"):
+                row["displayVersion"] = cached["displayVersion"]
+                row["title"] = cached["displayVersion"]
+            if cached.get("sub") and not row.get("sub"):
+                row["sub"] = cached["sub"]
+        return rows
+
+    def enrich_versions(self, rows: list[dict], *, app_id: str | None, bundle: str | None) -> list[dict]:
+        return self._enrich_versions(rows, app_id=app_id, bundle=bundle)
+
+    def _enrich_versions(self, rows: list[dict], *, app_id: str | None, bundle: str | None) -> list[dict]:
+
+        """Подтянуть название и дату через get-version-metadata, с кэшем на диске."""
+        from restore_gui.service import paths
+        import json
+        cache_path = paths.logs_dir() / "cache" / "versions.json"
+        cache: dict = {}
+        try:
+            if cache_path.is_file():
+                cache = json.loads(cache_path.read_text(encoding="utf-8")) or {}
+        except (OSError, ValueError):
+            cache = {}
+        key_prefix = f"{app_id or bundle or ''}:"
+        changed = False
+        for row in rows:
+            ext = str(row.get("value") or row.get("externalVersionId") or "")
+            if not ext:
+                continue
+            cached = cache.get(key_prefix + ext) or {}
+            if not row.get("displayVersion") and cached.get("displayVersion"):
+                row["displayVersion"] = cached["displayVersion"]
+                row["title"] = cached["displayVersion"]
+            if not row.get("sub") and cached.get("sub"):
+                row["sub"] = cached["sub"]
+            if row.get("displayVersion") and row.get("sub"):
+                continue
+            try:
+                meta = self.get_version_metadata(app_id=app_id, bundle=bundle, version_id=ext)
+            except StoreError:
+                continue
+            if meta.get("displayVersion"):
+                row["displayVersion"] = meta["displayVersion"]
+                row["title"] = meta["displayVersion"]
+            if meta.get("sub"):
+                row["sub"] = meta["sub"]
+            cache[key_prefix + ext] = {"displayVersion": row.get("displayVersion") or "", "sub": row.get("sub") or ""}
+            changed = True
+        if changed:
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+            except OSError:
+                pass
+        return rows
 
     def purchase(self, *, app_id: str | None = None, bundle: str | None = None, force: bool = False) -> dict | str:
         args = ["purchase"] + _id_flags(app_id, bundle)
@@ -290,32 +361,67 @@ def _as_apps(result) -> list[dict]:
     return []
 
 
+def _load_version_cache() -> dict:
+    from restore_gui.service import paths
+    import json
+    path = paths.logs_dir() / "cache" / "versions.json"
+    try:
+        if path.is_file():
+            return json.loads(path.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _version_items(result) -> list:
+
+    if isinstance(result, list):
+        return result
+    if not isinstance(result, dict):
+        return []
+    for key in (
+        "versions", "items", "results",
+        "externalVersionIdentifiers", "externalVersionIds", "externalVersionIDs",
+        "versionIdentifiers",
+    ):
+        value = result.get(key)
+        if isinstance(value, list) and value:
+            return value
+    data = result.get("data")
+    if isinstance(data, dict):
+        return _version_items(data)
+    if any(key in result for key in ("displayVersion", "externalVersionId", "externalVersionID", "releaseDate")):
+        return [result]
+    return []
+
+
 def _as_versions(result) -> list[dict]:
-    rows = []
-    if isinstance(result, dict):
-        for key in ("versions", "items", "results"):
-            if isinstance(result.get(key), list):
-                rows = result[key]
-                break
-        else:
-            rows = [result] if "displayVersion" in result or "externalVersionId" in result else []
-    elif isinstance(result, list):
-        rows = result
     out = []
-    for item in rows:
-        if not isinstance(item, dict):
+    seen = set()
+    for item in _version_items(result):
+        if isinstance(item, dict):
+            ver = str(item.get("displayVersion") or item.get("version") or item.get("bundleVersion") or "")
+            ext = str(item.get("externalVersionId") or item.get("externalVersionID") or item.get("id") or "")
+            date = str(item.get("releaseDate") or item.get("date") or "")
+            if date:
+                date = date.replace("T", " ").split(".")[0][:10]
+            ios = str(item.get("minimumOSVersion") or item.get("minOS") or "")
+            sub = " · ".join(part for part in (date, f"iOS {ios}" if ios else "") if part)
+        else:
+            ver, sub = "", ""
+            ext = str(item).strip()
+        if not ext and not ver:
             continue
-        ver = str(item.get("displayVersion") or item.get("version") or item.get("bundleVersion") or "")
-        ext = str(item.get("externalVersionId") or item.get("externalVersionID") or item.get("id") or "")
-        date = str(item.get("releaseDate") or item.get("date") or "")
-        ios = str(item.get("minimumOSVersion") or item.get("minOS") or "")
-        sub = " · ".join(part for part in (date, f"iOS {ios}" if ios else "") if part)
+        value = ext or ver
+        if value in seen:
+            continue
+        seen.add(value)
         out.append({
-            "value": ext or ver,
-            "title": ver or ext or "версия",
+            "value": value,
+            "title": ver or f"Сборка {value}",
             "sub": sub,
-            "mine": bool(item.get("mine") or item.get("purchased")),
-            "externalVersionId": ext,
+            "mine": bool(item.get("mine") or item.get("purchased")) if isinstance(item, dict) else False,
+            "externalVersionId": ext or value,
             "displayVersion": ver,
         })
     return out

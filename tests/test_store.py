@@ -222,3 +222,85 @@ class StoreRunTests(unittest.TestCase):
             store.run(["x"], timeout=1)
         self.assertIn("1 с", str(ctx.exception))
         self.assertLess(time.time() - start, 8)
+
+
+class LoginAuthCodeTests(unittest.TestCase):
+    def test_login_passes_auth_code_flag(self):
+        store = Store(exe=Path("/tmp/missing-ipatool"), passphrase="")
+        captured = {}
+
+        def fake_run(args, *, timeout=60, stop_on_2fa=False):
+            captured["args"] = list(args)
+            captured["stop_on_2fa"] = stop_on_2fa
+            captured["timeout"] = timeout
+            return {"success": True, "email": "user@example.com"}
+
+        store.run = fake_run  # type: ignore[method-assign]
+        store.login("user@example.com", "secret", "654321")
+        self.assertIn("--auth-code", captured["args"])
+        self.assertEqual(captured["args"][captured["args"].index("--auth-code") + 1], "654321")
+        self.assertFalse(captured["stop_on_2fa"])
+
+    def test_login_without_code_stops_on_2fa(self):
+        store = Store(exe=Path("/tmp/missing-ipatool"), passphrase="")
+        captured = {}
+
+        def fake_run(args, *, timeout=60, stop_on_2fa=False):
+            captured["args"] = list(args)
+            captured["stop_on_2fa"] = stop_on_2fa
+            raise StoreError("need code", needs_2fa=True)
+
+        store.run = fake_run  # type: ignore[method-assign]
+        with self.assertRaises(StoreError) as ctx:
+            store.login("user@example.com", "secret")
+        self.assertTrue(ctx.exception.needs_2fa)
+        self.assertTrue(captured["stop_on_2fa"])
+        self.assertNotIn("--auth-code", captured["args"])
+
+
+from restore_gui.service.prices import format_price  # noqa: E402
+from restore_gui.service.store import _as_versions  # noqa: E402
+from restore_gui.service import itunes, icons, paths  # noqa: E402
+from restore_gui.backend import _looks_internal, _public_device_text, _public_error  # noqa: E402
+
+
+class PriceFormatTests(unittest.TestCase):
+    def test_free(self):
+        for raw in (0, 0.0, "0", "0.00", "0,00", "$ 0,00", "$0.00", "0 руб.", "0 руб", "Free"):
+            self.assertEqual(format_price(raw), "Бесплатно", raw)
+
+    def test_paid_keeps_rubles_and_normalizes_dollar(self):
+        self.assertIn("руб", format_price("199 руб."))
+        self.assertEqual(format_price("$ 4.99"), "4,99 $")
+
+
+class VersionParseTests(unittest.TestCase):
+    def test_external_version_identifiers(self):
+        rows = _as_versions({"bundleID": "com.a", "externalVersionIdentifiers": [846810460, "846810461"]})
+        self.assertEqual([row["value"] for row in rows], ["846810460", "846810461"])
+        self.assertTrue(rows[0]["title"].startswith("Сборка"))
+
+    def test_full_metadata_rows(self):
+        rows = _as_versions({"versions": [{"displayVersion": "1.2", "externalVersionId": "99", "releaseDate": "2020-01-01T12:00:00Z"}]})
+        self.assertEqual(rows[0]["title"], "1.2")
+        self.assertIn("2020-01-01", rows[0]["sub"])
+
+
+class CatalogHelpersTests(unittest.TestCase):
+    def test_category_tabs(self):
+        names = itunes.category_names()
+        self.assertEqual(names[0], "Все")
+        self.assertIn("Образование", names)
+        self.assertIn("Развлечения", names)
+
+    def test_icon_cache_dir(self):
+        folder = icons.cache_dir()
+        self.assertEqual(folder, paths.logs_dir() / "cache" / "icons")
+
+    def test_hides_python_exceptions(self):
+        self.assertTrue(_looks_internal("'coroutine' object is not iterable"))
+        self.assertFalse(_looks_internal("Подключите кабель"))
+        text = _public_device_text("'coroutine' object is not iterable", "none")
+        self.assertNotIn("coroutine", text)
+        self.assertIn("устройств", text.lower())
+        self.assertNotIn("coroutine", _public_error(TypeError("'coroutine' object is not iterable")))

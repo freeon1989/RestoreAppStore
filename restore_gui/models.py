@@ -90,3 +90,12 @@ class DictList(QAbstractListModel):
 
     def __len__(self):
         return len(self._rows)
+
+    def patch_by_id(self, app_id: str, **fields) -> None:
+        roles = [key for key, name in self._roles.items() if name in fields]
+        for i, item in enumerate(self._rows):
+            if str(item.get("appId") or item.get("id") or "") != str(app_id):
+                continue
+            item.update(fields)
+            idx = self.index(i)
+            self.dataChanged.emit(idx, idx, roles or None)

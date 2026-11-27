@@ -24,6 +24,7 @@ from restore_gui.service import paths
 from restore_gui.service import prefs
 from restore_gui.service import secrets
 from restore_gui.service import updater
+from restore_gui.service.prices import format_price
 from restore_gui.service.store import Store, StoreError, parse_app_ref
 
 
@@ -57,6 +58,9 @@ class Backend(QObject):
     accountChanged, account = qprop(str, "account")
     deviceStateChanged, deviceState = qprop(str, "deviceState")
     deviceTextChanged, deviceText = qprop(str, "deviceText")
+    catalogLoadingChanged, catalogLoading = qprop(bool, "catalogLoading")
+    catalogErrorChanged, catalogError = qprop(str, "catalogError")
+    versionNeedPurchaseChanged, versionNeedPurchase = qprop(bool, "versionNeedPurchase")
     busyChanged, busy = qprop(bool, "busy")
     statusChanged, status = qprop(str, "status")
     selectedCountChanged, selectedCount = qprop(int, "selectedCount")
@@ -115,7 +119,7 @@ class Backend(QObject):
         self._loggedIn = False
         self._account = ""
         self._deviceState = "none"
-        self._deviceText = "Подключите iPhone кабелем"
+        self._deviceText = "Подключите iPhone или iPad кабелем"
         self._busy = False
         self._status = ""
         self._selectedCount = 0
@@ -128,6 +132,9 @@ class Backend(QObject):
         self._loginOpen = False
         self._loginNote = ""
         self._loginNeedsCode = False
+        self._catalogLoading = False
+        self._catalogError = ""
+        self._versionNeedPurchase = False
         self._askOpen = False
         self._askTitle = ""
         self._askPrompt = ""
@@ -163,6 +170,8 @@ class Backend(QObject):
         self._log_lines = []
         self._purchases: list[dict] = []
         self._device_apps: list[dict] = []
+        self._last_device_log = None
+        self._device_timer = None
         self._popular = DictList(APP_ROLES, self)
         self._apps = DictList(APP_ROLES, self)
         self._mine = DictList(APP_ROLES, self)
@@ -257,10 +266,7 @@ class Backend(QObject):
 
     @Property("QVariantList", notify=categoriesChanged)
     def categories(self):
-        genres = sorted({(row.get("genre") or row.get("kind") or "").strip()
-                         for model in (self._apps, self._popular)
-                         for row in model._rows if (row.get("genre") or row.get("kind"))})
-        return ["Все"] + [g for g in genres if g]
+        return list(itunes.category_names())
 
     def _accent_list(self):
         rows = []
@@ -322,6 +328,10 @@ class Backend(QObject):
         if self._autoUpdate:
             QTimer.singleShot(1500, lambda: self.checkUpdates(silent=True))
         QTimer.singleShot(800, self._load_popular)
+        self._device_timer = QTimer(self)
+        self._device_timer.setInterval(8000)
+        self._device_timer.timeout.connect(self._poll_device)
+        self._device_timer.start()
 
     def _restore_session(self):
         store = self._store_client()
@@ -342,36 +352,82 @@ class Backend(QObject):
             self.log(result["note"])
 
     def _probe_device(self):
-        return device_svc.status()
+        return device_svc.status(autopair=False)
+
+    def _poll_device(self):
+        if self._busy:
+            return
+        self._run(self._probe_device, self._on_device)
 
     def _on_device(self, result, error):
         if error or not result:
-            self.deviceState, self.deviceText = "none", "Подключите iPhone кабелем"
-            self.log("iPhone не виден. Если кабель уже подключён, установите «Устройства Apple» из Microsoft Store.")
+            state, text, udid = "none", "Подключите iPhone или iPad кабелем", ""
+            detail = str(error) if error else ""
+        else:
+            state = result.get("state") or "none"
+            text = result.get("text") or ""
+            udid = result.get("udid") or ""
+            detail = result.get("detail") or ""
+            self._device_apps = result.get("apps") or []
+        self.deviceState = state
+        self.deviceText = _public_device_text(text, state)
+        key = (state, text, device_svc.mask_udid(udid), (detail or "").strip())
+        if key == self._last_device_log:
             return
-        self.deviceState = result.get("state") or "none"
-        self.deviceText = result.get("text") or ""
-        self._device_apps = result.get("apps") or []
-        if self.deviceState != "ok":
-            self.log("iPhone не виден. Если кабель уже подключён, установите «Устройства Apple» из Microsoft Store.")
+        self._last_device_log = key
+        if _looks_internal(text) or _looks_internal(detail):
+            paths.write_app_log(f"устройство, скрытая ошибка: {detail or text}")
+        if state == "ok":
+            self.log(f"Устройство подключено: {self.deviceText}")
+        elif state == "trust":
+            self.log(self.deviceText or device_svc.TRUST_TEXT)
+        else:
+            message = self.deviceText or "iPhone или iPad не виден."
+            if detail:
+                message = f"{message} ({detail})"
+            hint = " Если кабель уже подключён, установите «Устройства Apple» из Microsoft Store."
+            if "Устройства Apple" not in message:
+                message += hint
+            self.log(message)
 
     def _load_popular(self):
+        self._load_catalog("Все", also_popular=True)
+
+    def _load_catalog(self, genre: str = "Все", *, also_popular: bool = False):
         if self._demo:
             return
+        genre = genre or "Все"
+        self.catalogLoading = True
+        self.catalogError = ""
 
         def work():
             try:
-                return itunes.top_free(self._country or "ru")
+                return itunes.catalog(self._country or "ru", genre=genre)
             except itunes.ITunesError as exc:
                 raise RuntimeError(str(exc)) from exc
 
-        self._run(work, self._on_popular)
+        def done(rows, error):
+            self.catalogLoading = False
+            if error:
+                message = _public_error(error)
+                self.catalogError = message
+                self.log(f"Каталог: {error}")
+                if not len(self._apps):
+                    self._apps.replace([])
+                return
+            items = [self._row(item, genre=item.get("genre") or item.get("kind") or genre,
+                               status=("нет в App Store" if item.get("onStore") is False else ""),
+                               statusKind=("warn" if item.get("onStore") is False else ""))
+                     for item in (rows or [])]
+            self._apps.replace(items)
+            if also_popular or genre == "Все":
+                popular = [row for row in items if row.get("statusKind") != "warn"][:25] or items[:25]
+                self._popular.replace(popular)
+                self._fill_icons(self._popular)
+            self.categoriesChanged.emit()
+            self._fill_icons(self._apps)
 
-    def _on_popular(self, rows, error):
-        if error or not rows:
-            return
-        self._popular.replace([self._row(item) for item in rows])
-        self.categoriesChanged.emit()
+        self._run(work, done)
 
     def _run(self, fn, done=None):
         # Один Event на задачу: stop() не должен подменять его, иначе «Остановить» не доходит до потока.
@@ -411,11 +467,7 @@ class Backend(QObject):
         if not line:
             return
         self._log_lines.append(line)
-        try:
-            with paths.log_path().open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except OSError:
-            pass
+        paths.write_app_log(line)
         self.logAppended.emit(line)
 
     def show_notice(self, title, text):
@@ -437,8 +489,11 @@ class Backend(QObject):
         if self._demo:
             return
         if ref["kind"] == "empty":
-            self._apps.replace([])
+            self._load_catalog(self._category or "Все")
             return
+
+        self.catalogLoading = True
+        self.catalogError = ""
 
         def work():
             if ref["kind"] == "id":
@@ -456,23 +511,28 @@ class Backend(QObject):
             return rows or itunes.search(ref["value"], self._country or "ru")
 
         def done(rows, error):
+            self.catalogLoading = False
             if error:
-                self.log(str(error))
-                self.show_notice("Поиск", str(error))
+                message = _public_error(error)
+                self.catalogError = message
+                self.log(f"Поиск: {error}")
+                self.show_notice("Поиск", message)
                 return
             items = [self._row(item, genre=item.get("genre") or item.get("kind") or "") for item in (rows or [])]
-            if self._category != "Все":
-                items = [row for row in items if row.get("genre") == self._category]
             self._apps.replace(items)
             self.categoriesChanged.emit()
+            self._fill_icons(self._apps)
 
         self._run(work, done)
 
     @Slot(str)
     def setCategory(self, name):
         self.category = name or "Все"
-        if getattr(self, "_last_query", ""):
-            self.setQuery(self._last_query)
+        query = (getattr(self, "_last_query", "") or "").strip()
+        if query:
+            self.setQuery(query)
+        else:
+            self._load_catalog(self.category)
 
     @Slot(bool)
     def setOnlyRemoved(self, on):
@@ -480,9 +540,12 @@ class Backend(QObject):
         self._refresh_mine()
 
     @Slot()
+    @Slot()
     def connectDevice(self):
-        self.log("Проверяю iPhone…")
-        self._run(self._probe_device, self._on_device)
+        def work():
+            return device_svc.status(autopair=True, pair_timeout=45)
+
+        self._run(work, self._on_device)
 
     @Slot()
     @Slot(str)
@@ -525,15 +588,22 @@ class Backend(QObject):
         def done(result, error):
             if error and isinstance(error, StoreError) and error.needs_2fa:
                 self.loginNeedsCode = True
-                self.loginNote = "Apple прислала код подтверждения. Введите его в поле ниже."
+                self.loginNote = (
+                    "Введите шестизначный код. Если уведомление на устройство не пришло, "
+                    "откройте на iPhone или iPad: Настройки → ваше имя → Вход и безопасность → Получить код проверки."
+                )
                 self.log("Нужен код подтверждения Apple.")
                 return
-            self._pending_login = None
-            self.loginNeedsCode = False
             if error:
+                # поле кода оставляем, если Apple его уже запросила: повторный вход с --auth-code
+                if not self.loginNeedsCode:
+                    self._pending_login = None
+                    self.loginNeedsCode = False
                 self.log(str(error))
                 self.show_notice("Вход", str(error))
                 return
+            self._pending_login = None
+            self.loginNeedsCode = False
             email = (result or {}).get("email") or pending.get("email") or ""
             self.loggedIn = True
             self.account = email
@@ -631,10 +701,11 @@ class Backend(QObject):
                 row["status"] = "нет в App Store"
                 row["statusKind"] = "warn"
             elif installed and (app_id in installed or item.get("bundle") in installed):
-                row["status"] = "на iPhone"
+                row["status"] = "на устройстве"
                 row["statusKind"] = "ok"
             out.append(row)
         self._mine.replace(out)
+        self._fill_icons(self._mine)
 
     @Slot()
     def netCheck(self):
@@ -709,7 +780,7 @@ class Backend(QObject):
                 return
             self.log(f"Установлено: {path}")
             if self._notifyDone:
-                self.show_notice("Установка", "Приложение установлено на iPhone.")
+                self.show_notice("Установка", "Приложение установлено на устройство.")
             if self._deleteAfterInstall:
                 try:
                     Path(path).unlink()
@@ -768,6 +839,7 @@ class Backend(QObject):
         self.detailOpen = True
         self.versionMode = "loading"
         self.selectedVersion = ""
+        self.versionNeedPurchase = False
         self.actionsEnabled = False
         self.detailChecks = {
             "acc": {"text": "вход выполнен" if self._loggedIn else "нужен вход в Apple ID",
@@ -796,7 +868,8 @@ class Backend(QObject):
         def done(result, error):
             if error:
                 self.versionMode = "error"
-                self.detailErr = str(error)
+                self.detailErr = _public_error(error)
+                self.log(f"Версии: {error}")
                 return
             store_item, versions, err = result
             checks = dict(self._detailChecks)
@@ -805,23 +878,80 @@ class Backend(QObject):
             else:
                 checks["store"] = {"text": "не найдено в текущей стране каталога", "kind": "warn"}
             self.detailChecks = checks
-            if err and not versions:
+            if versions:
+                self._show_versions(versions, app)
+                return
+            # пустой список часто значит «нет лицензии», а не «нет в истории»
+            if store_item and self._loggedIn:
+                self.versionNeedPurchase = True
+                self.versionMode = "need_purchase"
+                self.detailErr = err or ""
+                self.actionsEnabled = True
+                return
+            if err:
                 self.versionMode = "error"
-                self.detailErr = err
+                self.detailErr = _public_error(err)
+                self.log(f"Версии: {err}")
                 return
-            if not versions:
-                self.versionMode = "none"
-                self.actionsEnabled = bool(self._loggedIn)
-                return
-            self._versions.replace(versions)
-            self.selectedVersion = versions[0]["value"]
-            self.versionMode = "list"
+            self.versionMode = "none"
             self.actionsEnabled = bool(self._loggedIn)
 
         self._run(work, done)
 
+    def _show_versions(self, versions, app=None):
+        self.versionNeedPurchase = False
+        self._versions.replace(versions)
+        self.selectedVersion = versions[0]["value"]
+        self.versionMode = "list"
+        self.actionsEnabled = bool(self._loggedIn)
+        app = app or self._detailApp or {}
+        if any(not row.get("displayVersion") or not row.get("sub") for row in versions):
+            def work():
+                return self._store_client().enrich_versions(
+                    list(versions), app_id=app.get("id") or None, bundle=app.get("bundle") or None)
+
+            def done(rows, error):
+                if error or not rows:
+                    return
+                current = self.selectedVersion
+                self._versions.replace(rows)
+                if current:
+                    self.selectedVersion = current
+
+            self._run(work, done)
+
+    @Slot()
+    def purchaseAndListVersions(self):
+        app = self._detailApp or {}
+        if not app.get("id") and not app.get("bundle"):
+            return
+        self.versionMode = "loading"
+        self.versionNeedPurchase = False
+
+        def work():
+            self._store_client().purchase(app_id=app.get("id") or None, bundle=app.get("bundle") or None)
+            return self._store_client().list_versions(app_id=app.get("id") or None, bundle=app.get("bundle") or None)
+
+        def done(versions, error):
+            if error:
+                self.versionMode = "error"
+                self.detailErr = _public_error(error)
+                self.log(f"Получение приложения: {error}")
+                self.show_notice("Версии", _public_error(error))
+                return
+            if not versions:
+                self.versionMode = "none"
+                self.actionsEnabled = bool(self._loggedIn)
+                self.show_notice("Версии", "Лицензия получена, но список версий пуст.")
+                return
+            self._show_versions(versions, app)
+
+        self.log("Получаю приложение в этом Apple ID…")
+        self._run(work, done)
+
     @Slot()
     def closeDetail(self):
+
         self.detailOpen = False
 
     @Slot()
@@ -848,8 +978,8 @@ class Backend(QObject):
         if self._deviceState == "ok":
             return False
         self.show_notice(
-            "iPhone не виден",
-            "Установите «Устройства Apple» из Microsoft Store, подключите кабель и нажмите «Доверять» на телефоне.",
+            "Устройство не видно",
+            "Установите «Устройства Apple» из Microsoft Store, подключите кабель и нажмите «Доверять» на iPhone или iPad.",
         )
         return True
 
@@ -1001,8 +1131,8 @@ class Backend(QObject):
         return (
             f"{core.DISPLAY_NAME} {core.__version__}\n\n"
             "Программа входит в ваш Apple ID через ipatool-cpp, показывает историю покупок, "
-            "скачивает IPA и ставит их на iPhone по кабелю.\n\n"
-            "Чтобы Windows увидела iPhone, установите приложение «Устройства Apple» (Apple Devices) "
+            "скачивает IPA и ставит их на iPhone или iPad по кабелю.\n\n"
+            "Чтобы Windows увидела устройство, установите приложение «Устройства Apple» (Apple Devices) "
             "из Microsoft Store, подключите кабель и на телефоне нажмите «Доверять».\n"
             f"Ссылка: {core.APPLE_DEVICES_STORE_URL}\n\n"
             "Пароль Apple ID на диск не записывается: сессию хранит ipatool-cpp в зашифрованном виде, "
@@ -1010,12 +1140,17 @@ class Backend(QObject):
             "Обновления берутся только с GitHub Releases, файл сверяется по SHA-256. "
             "Если что-то пойдёт не так, в «Настройки → О программе» можно вернуть предыдущую копию.\n\n"
             "Журналы: %LOCALAPPDATA%\\RestoreAppStore\\app.log и startup.log. "
-            "Папку можно открыть в «Настройки → О программе»."
+            "Папку можно открыть в «Настройки → О программе». "
+            "Если уведомление с кодом не приходит, получите код вручную: "
+            "Настройки → ваше имя → Вход и безопасность → Получить код проверки. "
+            "Диагностика кабеля: RestoreAppStore.exe --diag-device (пишет в app.log и сразу закрывается)."
         )
 
     @Slot()
     def shutdown(self):
         self._stop.set()
+        if self._device_timer is not None:
+            self._device_timer.stop()
         if self._store is not None:
             self._store.cancel()
         self._persist()
@@ -1046,25 +1181,83 @@ class Backend(QObject):
     def _row(self, item, status="", statusKind="", genre=""):
         app_id = str(item.get("id") or item.get("appId") or "")
         name = str(item.get("name") or item.get("title") or "")
-        icon = item.get("icon") or ""
+        remote_icon = item.get("icon") or item.get("artwork") or ""
+        icon = remote_icon
         if icon and icon.startswith("https://"):
-            local = icon_svc.local_path(app_id, icon)
+            local = icon_svc.cached_path(app_id, icon)
             if local:
                 icon = paths.file_url(local)
+        elif icon and not icon.startswith("file:"):
+            local = icon_svc.cached_path(app_id, "")
+            if local:
+                icon = paths.file_url(local)
+            else:
+                icon = ""
+        price = format_price(item.get("price") or "")
+        developer = str(item.get("developer") or item.get("artist") or "")
+        sub = " · ".join(part for part in (developer, price or item.get("version") or item.get("date") or "") if part)
         return {
             "appId": app_id,
             "title": name,
-            "sub": item.get("price") or item.get("version") or item.get("date") or "",
+            "sub": sub,
             "letter": (name or "?")[:1].upper(),
             "tint": self._tint(app_id or name),
             "icon": icon,
+            "remoteIcon": remote_icon if str(remote_icon).startswith("https://") else "",
             "status": status,
             "statusKind": statusKind,
             "selected": False,
             "copies": item.get("copies") or "",
             "bundle": item.get("bundle") or "",
             "genre": genre or item.get("genre") or item.get("kind") or "",
+            "price": price,
         }
+
+    def _fill_icons(self, model) -> None:
+        rows = [dict(row) for row in getattr(model, "_rows", [])]
+        if not rows:
+            return
+        country = self._country or "ru"
+
+        def work():
+            missing = [row["appId"] for row in rows if row.get("appId") and not str(row.get("icon") or "").startswith("file:")]
+            found = {}
+            need_lookup = [app_id for app_id in missing if not any(
+                str(row.get("remoteIcon") or "").startswith("https://") for row in rows if row.get("appId") == app_id)]
+            if need_lookup:
+                try:
+                    found = itunes.lookup_many(need_lookup, country)
+                except itunes.ITunesError as exc:
+                    paths.write_app_log(f"иконки lookup: {exc}")
+                    found = {}
+            updates = []
+            for row in rows:
+                app_id = row.get("appId") or ""
+                url = str(row.get("remoteIcon") or "")
+                if not url.startswith("https://"):
+                    url = str((found.get(app_id) or {}).get("icon") or "")
+                if not url.startswith("https://"):
+                    continue
+                path = icon_svc.fetch(app_id, url)
+                if path:
+                    extra = {}
+                    info = found.get(app_id) or {}
+                    if info.get("price") or info.get("developer"):
+                        price = format_price(info.get("price") or row.get("price") or "")
+                        developer = info.get("developer") or ""
+                        extra["sub"] = " · ".join(part for part in (developer, price or row.get("sub") or "") if part)
+                    updates.append((app_id, paths.file_url(path), extra))
+            return updates
+
+        def done(updates, error):
+            if error or not updates:
+                return
+            for app_id, icon, extra in updates:
+                fields = {"icon": icon}
+                fields.update(extra)
+                model.patch_by_id(app_id, **fields)
+
+        self._run(work, done)
 
     def _tint(self, key: str) -> str:
         digest = hashlib.sha256((key or "?").encode("utf-8")).digest()
@@ -1121,3 +1314,30 @@ def _reduce_motion() -> bool:
 def sys_frozen():
     import sys
     return sys
+
+
+def _looks_internal(text: str) -> bool:
+    blob = (text or "").strip().lower()
+    if not blob:
+        return False
+    tokens = (
+        "coroutine", "traceback", "typeerror", "attributeerror", "exception:",
+        "file \"", "line ", "object is not", "asyncio", "nonetype",
+    )
+    return any(token in blob for token in tokens)
+
+
+def _public_error(exc) -> str:
+    text = str(exc or "").strip()
+    if not text or _looks_internal(text):
+        return "Не удалось выполнить операцию. Подробности записаны в журнал."
+    return text[:400]
+
+
+def _public_device_text(text: str, state: str) -> str:
+    raw = (text or "").strip()
+    if _looks_internal(raw):
+        if state == "trust":
+            return device_svc.TRUST_TEXT
+        return "Не удалось связаться с устройством. Подключите кабель и нажмите «Доверять» на iPhone или iPad."
+    return raw

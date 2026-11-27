@@ -270,7 +270,7 @@ Popup {
                                 spacing: 2
                                 Text { text: backend.displayName + " " + backend.version; color: backend.pal.text; font.family: backend.pal.font
                                        font.pixelSize: 22; font.weight: Font.ExtraBold }
-                                Text { text: "Приложения из истории покупок Apple ID — снова на iPhone"
+                                Text { text: "Приложения из истории покупок Apple ID — снова на iPhone и iPad"
                                        color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 15
                                        Layout.fillWidth: true; wrapMode: Text.WordWrap }
                             }
@@ -308,7 +308,7 @@ Popup {
                             Row2 {
                                 last: true
                                 title: "Устройства Apple"
-                                sub: "Официальное приложение Apple из Microsoft Store. Без него Windows обычно не видит iPhone по кабелю. Затем подключите кабель и на телефоне нажмите «Доверять»."
+                                sub: "Официальное приложение Apple из Microsoft Store. Без него Windows обычно не видит iPhone или iPad по кабелю. Затем подключите кабель и на устройстве нажмите «Доверять»."
                                 Btn { text: "Открыть Store"; kind: "primary"; lock: false; implicitHeight: 34
                                       onClicked: backend.openAppleDevicesStore() }
                             }

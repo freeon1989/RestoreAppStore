@@ -42,6 +42,7 @@ ColumnLayout {
     Item {
         Layout.fillWidth: true
         implicitHeight: 36
+        clip: true
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: backend.pal.border }
         ListView {
             anchors.fill: parent
@@ -49,7 +50,13 @@ ColumnLayout {
             spacing: 22
             clip: true
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+            interactive: true
             model: backend.categories
+            ScrollBar.horizontal: ScrollBar {
+                policy: parent.contentWidth > parent.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                height: 4
+            }
             delegate: Item {
                 id: cat
                 required property string modelData
@@ -68,8 +75,20 @@ ColumnLayout {
         }
     }
 
-    Text { text: "Найдено: " + list.count; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 13
-           Layout.topMargin: 2 }
+    RowLayout {
+        Layout.fillWidth: true
+        Layout.topMargin: 2
+        spacing: 8
+        BusyIndicator { visible: backend.catalogLoading; running: visible; implicitWidth: 16; implicitHeight: 16 }
+        Text {
+            text: backend.catalogLoading ? "Загружаю каталог…"
+                : (backend.catalogError !== "" ? backend.catalogError : ("Найдено: " + list.count))
+            color: backend.catalogError !== "" ? backend.pal.warn : backend.pal.muted
+            font.family: backend.pal.font; font.pixelSize: 13
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+    }
 
     AppsList {
         id: list
@@ -77,7 +96,8 @@ ColumnLayout {
         Layout.fillHeight: true
         listName: "apps"
         model: backend.apps
-        emptyTitle: "Ничего не нашлось"
-        emptySub: "Попробуйте App ID или ссылку App Store."
+        emptyTitle: backend.catalogLoading ? "Загружаю…" : (backend.catalogError !== "" ? "Каталог недоступен" : "Ничего не нашлось")
+        emptySub: backend.catalogLoading ? "Запрашиваю приложения в App Store."
+                : (backend.catalogError !== "" ? backend.catalogError : "Попробуйте App ID или ссылку App Store.")
     }
 }

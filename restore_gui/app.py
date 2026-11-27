@@ -73,6 +73,9 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "--apply-update":
         from restore_gui.service.updater import apply_update
         sys.exit(apply_update(sys.argv[2:]))
+    if "--diag-device" in sys.argv:
+        from restore_gui.service.device import write_diagnostics
+        raise SystemExit(write_diagnostics())
     qt_environment()
     if "--check-ui" in sys.argv:
         report = sys.argv[sys.argv.index("--check-ui") + 1]

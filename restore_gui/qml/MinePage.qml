@@ -6,7 +6,8 @@ ColumnLayout {
 
     PageTitle { title: "Мои удалённые"; sub: "Приложения, которые были у вашего Apple ID и пропали из App Store." }
 
-    RowLayout {
+    Flow {
+        Layout.fillWidth: true
         Layout.topMargin: 4
         spacing: 8
         Btn { text: "Проверить по каталогу"; kind: "primary"; onClicked: backend.findMine() }

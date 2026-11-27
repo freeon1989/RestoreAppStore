@@ -80,7 +80,7 @@ Rectangle {
                         width: 8; height: 8; radius: 4
                         color: backend.deviceState === "ok" ? backend.pal.ok : backend.deviceState === "trust" ? backend.pal.warn : backend.pal.borderLight
                     }
-                    Text { text: "iPhone"; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 11
+                    Text { text: "Устройство"; color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 11
                            font.weight: Font.DemiBold; font.letterSpacing: 0.6 }
                 }
                 Text {
@@ -143,7 +143,7 @@ Rectangle {
                 Menu {
                     id: menu
                     font.family: backend.pal.font
-                    MenuItem { text: "Подключить iPhone / повторить"; onTriggered: backend.connectDevice() }
+                    MenuItem { text: "Подключить устройство / повторить"; onTriggered: backend.connectDevice() }
                     MenuItem { text: "Справка"; onTriggered: rail.helpRequested() }
                     MenuItem { text: "Открыть папку с IPA"; onTriggered: backend.openFolder() }
                     MenuItem { text: "Проверить связь с Apple"; onTriggered: backend.netCheck() }

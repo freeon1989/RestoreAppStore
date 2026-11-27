@@ -138,9 +138,25 @@ Drawer {
                         Text {  // нет в истории
                             visible: backend.versionMode === "none"
                             Layout.margins: 14
-                            text: "Выбор версии недоступен: приложения нет в истории этого Apple ID."
+                            text: "Список версий пуст. Если приложение платное, сначала купите его в App Store."
                             color: backend.pal.muted; font.family: backend.pal.font; font.pixelSize: 14; wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                        }
+
+                        ColumnLayout {
+                            visible: backend.versionMode === "need_purchase"
+                            Layout.fillWidth: true; Layout.margins: 6
+                            spacing: 8
+                            Text {
+                                text: "Версии появятся после добавления приложения в этот Apple ID. Если оно бесплатное, можно получить его прямо отсюда."
+                                color: backend.pal.text; font.family: backend.pal.font; font.pixelSize: 14
+                                wrapMode: Text.WordWrap; Layout.fillWidth: true
+                            }
+                            Btn {
+                                text: "Получить бесплатно и показать версии"
+                                kind: "primary"; lock: false; implicitHeight: 36
+                                onClicked: backend.purchaseAndListVersions()
+                            }
                         }
 
                         Repeater {  // список версий

@@ -35,6 +35,15 @@ Item {
             Btn { id: showPw; checkable: true; text: checked ? "Скрыть" : "Показать"; kind: "ghost"; lock: false
                   implicitHeight: 46 }
         }
+        Text {
+            visible: backend.loginNeedsCode
+            text: "Если уведомление на устройство не пришло, откройте на iPhone или iPad: Настройки → ваше имя → Вход и безопасность → Получить код проверки. Затем введите шестизначный код сюда."
+            color: backend.pal.muted
+            font.family: backend.pal.font
+            font.pixelSize: 13
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
         Field {
             id: authCode
             visible: backend.loginNeedsCode
